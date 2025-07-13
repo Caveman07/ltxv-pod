@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.env
+.env
+.env.*
+
+# Logs
+*.log
+/app/app.log
+
+# Virtual environments
+.venv/
+venv/
+
+# VS Code
+.vscode/
+
+# Docker
+*.tar
+*.img
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDEs
+.idea/
