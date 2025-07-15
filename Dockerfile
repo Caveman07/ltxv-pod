@@ -1,27 +1,60 @@
-FROM nvidia/cuda:11.8.0-runtime-ubuntu22.04
+# Stage 1: Model Download (cached separately)
+FROM python:3.11-slim as model-downloader
 
-# Системные зависимости
-RUN apt update && apt install -y \
-    python3 python3-pip git git-lfs ffmpeg curl && \
-    ln -s /usr/bin/python3 /usr/bin/python && \
-    apt clean
+# Install git and git-lfs for model downloading
+RUN apt-get update && apt-get install -y \
+    git \
+    git-lfs \
+    && rm -rf /var/lib/apt/lists/*
 
-# Python-зависимости
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Initialize git-lfs
+RUN git lfs install
 
-# Клонируем модели из Hugging Face
-RUN git lfs install && \
-    git clone https://huggingface.co/Lightricks/LTX-Video-ICLoRA-pose-13b-0.9.7 /app/models/pose && \
+# Create models directory
+RUN mkdir -p /app/models
+
+# Download LTX models from Hugging Face (this layer will be cached)
+RUN git clone https://huggingface.co/Lightricks/LTX-Video-ICLoRA-pose-13b-0.9.7 /app/models/pose && \
     git clone https://huggingface.co/Lightricks/LTX-Video-ICLoRA-canny-13b-0.9.7 /app/models/canny
 
-# Копируем код
-COPY app.py /app/app.py
-COPY .env.example /app/.env
+# Stage 2: Application Build
+FROM python:3.11-slim
+
+# Set working directory
 WORKDIR /app
 
-# Переменные окружения
-ENV API_TOKEN=changeme
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    git \
+    wget \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
-# Старт сервера
+# Copy requirements first for better caching
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Create directories
+RUN mkdir -p /app/videos /app/models
+
+# Copy models from the model-downloader stage
+COPY --from=model-downloader /app/models /app/models
+
+# Copy application code
+COPY app.py .
+
+# Create non-root user
+RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+USER appuser
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Run the application
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]

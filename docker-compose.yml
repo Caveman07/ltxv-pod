@@ -1,0 +1,32 @@
+version: "3.8"
+
+services:
+  ltxv-pod:
+    build: .
+    container_name: ltxv-pod
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./videos:/app/videos
+      - ./logs:/app/logs
+      - ltxv_models:/app/models # Persistent models volume
+    environment:
+      - API_TOKEN=changeme
+      - MOCK_MODE=true
+      - R2_ENABLED=false
+      - R2_ACCESS_KEY=${R2_ACCESS_KEY}
+      - R2_SECRET_KEY=${R2_SECRET_KEY}
+      - R2_ENDPOINT=${R2_ENDPOINT}
+      - R2_BUCKET=${R2_BUCKET}
+      - WEBHOOK_URL=${WEBHOOK_URL}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  ltxv_models: # Named volume for models
+    driver: local
