@@ -303,7 +303,7 @@ else:
     import torch
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
     for model_name in MODEL_NAMES:
-        model_path = f"/app/models/{model_name}"
+        model_path = f"models/{model_name}"
         try:
             pipe = DiffusionPipeline.from_pretrained(
                 model_path,
