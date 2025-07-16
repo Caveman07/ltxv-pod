@@ -302,45 +302,76 @@ else:
     from safetensors.torch import load_file as load_safetensors
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-    # Path to the base model .safetensors file
-    base_model_path = "models/base/ltxv-13b-0.9.7-dev.safetensors"
-    if not os.path.exists(base_model_path):
-        logging.error(f"Base model file not found: {base_model_path}")
-        MODEL = MockPipeline()
-    else:
-        model_path = f"models/{MODEL_NAME}"
-        safetensors_files = [f for f in os.listdir(model_path) if f.endswith('.safetensors')]
-        if not safetensors_files:
-            logging.error(f"No .safetensors files found in {model_path}")
-            MODEL = MockPipeline()
-        else:
-            try:
-                # Load the base model weights
-                logging.info(f"Loading base model from {base_model_path}")
-                base_weights = load_safetensors(base_model_path, device=DEVICE)
-                # Initialize the pipeline with base weights (this is a placeholder, actual integration may require more code)
-                pipe = StableDiffusionPipeline.from_single_file(
-                    base_model_path,
-                    torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
-                ).to(DEVICE)
-
-                # Load the LoRA weights
-                for safetensor_file in safetensors_files:
-                    if "diffusers" in safetensor_file.lower():
-                        lora_path = os.path.join(model_path, safetensor_file)
-                        pipe.load_lora_weights(lora_path)
-                        logging.info(f"Loaded LoRA weights from {lora_path}")
-                        break
-
-                if DEVICE == "cuda":
-                    pipe.enable_model_cpu_offload()
-
-                MODEL = pipe
-                logging.info(f"✅ Model '{MODEL_NAME}' loaded on {DEVICE}")
-            except Exception as e:
-                logging.error(f"❌ Failed to load model '{MODEL_NAME}': {e}")
+    try:
+        if MODEL_NAME == "base":
+            # Load base model directly
+            base_model_path = "models/base/ltxv-13b-0.9.7-dev.safetensors"
+            if not os.path.exists(base_model_path):
+                logging.error(f"Base model file not found: {base_model_path}")
                 MODEL = MockPipeline()
-                logging.info(f"Using mock pipeline for '{MODEL_NAME}'")
+            else:
+                logging.info(f"Loading base model from {base_model_path}")
+                try:
+                    pipe = StableDiffusionPipeline.from_single_file(
+                        base_model_path,
+                        torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
+                        use_safetensors=True,
+                        load_safety_checker=False,
+                        local_files_only=True
+                    ).to(DEVICE)
+
+                    if DEVICE == "cuda":
+                        pipe.enable_model_cpu_offload()
+
+                    MODEL = pipe
+                    logging.info(f"✅ Base model loaded on {DEVICE}")
+                except Exception as e:
+                    logging.error(f"❌ Failed to load base model: {e}")
+                    MODEL = MockPipeline()
+                    logging.info("Using mock pipeline for base model")
+        else:
+            # Load specialized model (pose, canny, depth) with LoRA
+            base_model_path = "models/base/ltxv-13b-0.9.7-dev.safetensors"
+            model_path = f"models/{MODEL_NAME}"
+            
+            if not os.path.exists(base_model_path):
+                logging.error(f"Base model file not found: {base_model_path}")
+                MODEL = MockPipeline()
+            elif not os.path.exists(model_path):
+                logging.error(f"Model directory not found: {model_path}")
+                MODEL = MockPipeline()
+            else:
+                safetensors_files = [f for f in os.listdir(model_path) if f.endswith('.safetensors')]
+                if not safetensors_files:
+                    logging.error(f"No .safetensors files found in {model_path}")
+                    MODEL = MockPipeline()
+                else:
+                    logging.info(f"Loading base model from {base_model_path}")
+                    pipe = StableDiffusionPipeline.from_single_file(
+                        base_model_path,
+                        torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
+                        use_safetensors=True,
+                        load_safety_checker=False,
+                        local_files_only=True
+                    ).to(DEVICE)
+
+                    # Load the LoRA weights
+                    for safetensor_file in safetensors_files:
+                        if "diffusers" in safetensor_file.lower():
+                            lora_path = os.path.join(model_path, safetensor_file)
+                            pipe.load_lora_weights(lora_path)
+                            logging.info(f"Loaded LoRA weights from {lora_path}")
+                            break
+
+                    if DEVICE == "cuda":
+                        pipe.enable_model_cpu_offload()
+
+                    MODEL = pipe
+                    logging.info(f"✅ Model '{MODEL_NAME}' loaded on {DEVICE}")
+    except Exception as e:
+        logging.error(f"❌ Failed to load model '{MODEL_NAME}': {e}")
+        MODEL = MockPipeline()
+        logging.info(f"Using mock pipeline for '{MODEL_NAME}'")
 
 @app.post("/generate")
 async def generate(
