@@ -27,34 +27,46 @@ else
     echo "⏭️ Base model already exists, skipping..."
 fi
 
-# Check if git-lfs is installed
-if ! command -v git-lfs &> /dev/null; then
-    echo "❌ git-lfs is not installed. Please install it first:"
-    echo "   Ubuntu/Debian: sudo apt-get install git-lfs"
-    echo "   macOS: brew install git-lfs"
-    echo "   Windows: https://git-lfs.github.com/"
-    exit 1
-fi
+# Download pose model
+POSE_MODEL_DIR="$MODELS_DIR/pose"
+POSE_MODEL_FILE="$POSE_MODEL_DIR/ltxv-097-ic-lora-pose-control-diffusers.safetensors"
+POSE_MODEL_URL="https://huggingface.co/Lightricks/LTX-Video-ICLoRA-pose-13b-0.9.7/resolve/main/ltxv-097-ic-lora-pose-control-diffusers.safetensors"
 
-# Initialize git-lfs
-echo "🔧 Initializing git-lfs..."
-git lfs install
-
-# Download models
-echo "📥 Downloading pose model..."
-if [ ! -d "$MODELS_DIR/pose" ]; then
-    git clone https://huggingface.co/Lightricks/LTX-Video-ICLoRA-pose-13b-0.9.7 "$MODELS_DIR/pose"
-    echo "✅ Pose model downloaded"
+if [ ! -f "$POSE_MODEL_FILE" ]; then
+    echo "📥 Downloading pose model..."
+    mkdir -p "$POSE_MODEL_DIR"
+    wget -O "$POSE_MODEL_FILE" "$POSE_MODEL_URL"
+    echo "✅ Pose model downloaded: $POSE_MODEL_FILE"
 else
     echo "⏭️ Pose model already exists, skipping..."
 fi
 
-echo "📥 Downloading canny model..."
-if [ ! -d "$MODELS_DIR/canny" ]; then
-    git clone https://huggingface.co/Lightricks/LTX-Video-ICLoRA-canny-13b-0.9.7 "$MODELS_DIR/canny"
-    echo "✅ Canny model downloaded"
+# Download canny model
+CANNY_MODEL_DIR="$MODELS_DIR/canny"
+CANNY_MODEL_FILE="$CANNY_MODEL_DIR/ltxv-097-ic-lora-canny-control-diffusers.safetensors"
+CANNY_MODEL_URL="https://huggingface.co/Lightricks/LTX-Video-ICLoRA-canny-13b-0.9.7/resolve/main/ltxv-097-ic-lora-canny-control-diffusers.safetensors"
+
+if [ ! -f "$CANNY_MODEL_FILE" ]; then
+    echo "📥 Downloading canny model..."
+    mkdir -p "$CANNY_MODEL_DIR"
+    wget -O "$CANNY_MODEL_FILE" "$CANNY_MODEL_URL"
+    echo "✅ Canny model downloaded: $CANNY_MODEL_FILE"
 else
     echo "⏭️ Canny model already exists, skipping..."
+fi
+
+# Download depth model
+DEPTH_MODEL_DIR="$MODELS_DIR/depth"
+DEPTH_MODEL_FILE="$DEPTH_MODEL_DIR/ltxv-097-ic-lora-depth-control-diffusers.safetensors"
+DEPTH_MODEL_URL="https://huggingface.co/Lightricks/LTX-Video-ICLoRA-depth-13b-0.9.7/resolve/main/ltxv-097-ic-lora-depth-control-diffusers.safetensors"
+
+if [ ! -f "$DEPTH_MODEL_FILE" ]; then
+    echo "📥 Downloading depth model..."
+    mkdir -p "$DEPTH_MODEL_DIR"
+    wget -O "$DEPTH_MODEL_FILE" "$DEPTH_MODEL_URL"
+    echo "✅ Depth model downloaded: $DEPTH_MODEL_FILE"
+else
+    echo "⏭️ Depth model already exists, skipping..."
 fi
 
 echo ""
