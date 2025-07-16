@@ -375,6 +375,7 @@ async def generate(
 
     # Validate control type matches model
     model_control_compat = {
+        'base': ['general'],
         'pose': ['pose', 'general'],
         'canny': ['canny', 'general'],
         'depth': ['depth', 'general']
@@ -612,6 +613,7 @@ async def estimate_time(
 
     # Validate control type matches model
     model_control_compat = {
+        'base': ['general'],
         'pose': ['pose', 'general'],
         'canny': ['canny', 'general'],
         'depth': ['depth', 'general']
