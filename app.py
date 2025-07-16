@@ -40,7 +40,7 @@ app.mount("/videos", StaticFiles(directory="videos"), name="videos")
 
 API_TOKEN = os.getenv("API_TOKEN", "changeme")
 MOCK_MODE = os.getenv("MOCK_MODE", "true").lower() == "true"
-# MODEL_NAME = os.getenv("MODEL_NAME", "pose")  # Removed
+MODEL_NAME = os.getenv("MODEL_NAME", "base")  # Single model to load
 
 # Cloudflare R2 конфигурация
 R2_ENABLED = os.getenv("R2_ENABLED", "false").lower() == "true"
@@ -62,7 +62,7 @@ r2_client = boto3.client(
 # Состояние pod'а
 STATE = {
     "busy": False,
-    # "model": MODEL_NAME,  # Removed
+    "model": MODEL_NAME,
     "last_task_at": None,
     "current_task_id": None,
     "estimated_completion": None
@@ -291,13 +291,11 @@ class MockPipeline:
         return Result()
 
 # Model loading
-MODELS = {}
-MODEL_NAMES = ['pose', 'canny']  # Remove 'general' as it doesn't exist
+MODEL = None
 
 if MOCK_MODE:
     logging.info("Running in MOCK mode.")
-    for name in MODEL_NAMES:
-        MODELS[name] = MockPipeline()
+    MODEL = MockPipeline()
 else:
     from diffusers import StableDiffusionPipeline
     import torch
@@ -308,14 +306,14 @@ else:
     base_model_path = "models/base/ltxv-13b-0.9.7-dev.safetensors"
     if not os.path.exists(base_model_path):
         logging.error(f"Base model file not found: {base_model_path}")
+        MODEL = MockPipeline()
     else:
-        for model_name in MODEL_NAMES:
-            model_path = f"models/{model_name}"
-            safetensors_files = [f for f in os.listdir(model_path) if f.endswith('.safetensors')]
-            if not safetensors_files:
-                logging.error(f"No .safetensors files found in {model_path}")
-                MODELS[model_name] = MockPipeline()
-                continue
+        model_path = f"models/{MODEL_NAME}"
+        safetensors_files = [f for f in os.listdir(model_path) if f.endswith('.safetensors')]
+        if not safetensors_files:
+            logging.error(f"No .safetensors files found in {model_path}")
+            MODEL = MockPipeline()
+        else:
             try:
                 # Load the base model weights
                 logging.info(f"Loading base model from {base_model_path}")
@@ -337,12 +335,12 @@ else:
                 if DEVICE == "cuda":
                     pipe.enable_model_cpu_offload()
 
-                MODELS[model_name] = pipe
-                logging.info(f"✅ Model '{model_name}' loaded on {DEVICE}")
+                MODEL = pipe
+                logging.info(f"✅ Model '{MODEL_NAME}' loaded on {DEVICE}")
             except Exception as e:
-                logging.error(f"❌ Failed to load model '{model_name}': {e}")
-                MODELS[model_name] = MockPipeline()
-                logging.info(f"Using mock pipeline for '{model_name}'")
+                logging.error(f"❌ Failed to load model '{MODEL_NAME}': {e}")
+                MODEL = MockPipeline()
+                logging.info(f"Using mock pipeline for '{MODEL_NAME}'")
 
 @app.post("/generate")
 async def generate(
@@ -360,8 +358,7 @@ async def generate(
     audio_sfx: Optional[bool] = Form(False),
     num_inference_steps: Optional[int] = Form(30),
     guidance_scale: Optional[float] = Form(7.5),
-    control_type: Optional[ControlType] = Form(ControlType.GENERAL),
-    model_name: Optional[str] = Form('pose')
+    control_type: Optional[ControlType] = Form(ControlType.GENERAL)
 ):
     if token != API_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid token")
@@ -373,19 +370,17 @@ async def generate(
     if not control_image and not control_video:
         raise HTTPException(status_code=400, detail="Either control_image or control_video must be provided")
 
-    # Validate model_name
-    if model_name not in MODELS:
-        raise HTTPException(status_code=400, detail=f"Invalid model_name: {model_name}")
-    model = MODELS[model_name]
+    # Use the loaded model
+    model = MODEL
 
     # Validate control type matches model
     model_control_compat = {
         'pose': ['pose', 'general'],
         'canny': ['canny', 'general'],
-        'general': ['general']
+        'depth': ['depth', 'general']
     }
-    if control_type not in model_control_compat.get(model_name, []):
-        raise HTTPException(status_code=400, detail=f"Control type '{control_type}' is not compatible with model '{model_name}'")
+    if control_type not in model_control_compat.get(MODEL_NAME, []):
+        raise HTTPException(status_code=400, detail=f"Control type '{control_type}' is not compatible with model '{MODEL_NAME}'")
 
     # Determine input type
     input_type = InputType.VIDEO if control_video else InputType.IMAGE
@@ -443,7 +438,7 @@ async def generate(
             # Use reference video for generation
             generation_params["reference_video"] = reference_video
             
-            logging.info(f"🎬 Generating video with reference video ({len(reference_video)} frames) for control_type={control_type} using model={model_name}")
+            logging.info(f"🎬 Generating video with reference video ({len(reference_video)} frames) for control_type={control_type} using model={MODEL_NAME}")
             
             # Clean up temp file
             os.unlink(temp_video.name)
@@ -467,13 +462,13 @@ async def generate(
             # Use single image for generation
             generation_params["image"] = processed_img
             
-            logging.info(f"🎬 Generating video with single image for control_type={control_type} using model={model_name}")
+            logging.info(f"🎬 Generating video with single image for control_type={control_type} using model={MODEL_NAME}")
             
             # Clean up temp file
             os.unlink(temp_file.name)
         
         # Log generation settings and time estimate
-        logging.info(f"🎬 Generating video with settings: aspect_ratio={aspect_ratio}, duration={duration}, intensity={intensity}, control_type={control_type}, input_type={input_type}, model_name={model_name}, seed={seed}, audio_sfx={audio_sfx}")
+        logging.info(f"🎬 Generating video with settings: aspect_ratio={aspect_ratio}, duration={duration}, intensity={intensity}, control_type={control_type}, input_type={input_type}, model_name={MODEL_NAME}, seed={seed}, audio_sfx={audio_sfx}")
         logging.info(f"⏱️ Estimated generation time: {time_estimate['estimated_time']} (confidence: {time_estimate['confidence']})")
         
         # Generate video using selected model and parameters, returning path to first video
@@ -532,7 +527,7 @@ async def generate(
                 "guidance_scale": guidance_scale,
                 "control_type": control_type,
                 "input_type": input_type,
-                "model_name": model_name
+                "model_name": MODEL_NAME
             }
         }
 
@@ -544,7 +539,7 @@ async def generate(
             except Exception as e:
                 logging.warning(f"⚠️ Webhook failed: {e}")
 
-        logging.info(f"✅ Generation completed in {actual_duration}s (estimated: {time_estimate['estimated_time']}) [model={model_name} control_type={control_type} input_type={input_type} task_id={task_id}]")
+        logging.info(f"✅ Generation completed in {actual_duration}s (estimated: {time_estimate['estimated_time']}) [model={MODEL_NAME} control_type={control_type} input_type={input_type} task_id={task_id}]")
         return result
 
     except Exception as e:
@@ -563,7 +558,7 @@ async def reset_state():
 def get_status():
     return {
         "status": "busy" if STATE["busy"] else "idle",
-        "models": list(MODELS.keys()),  # Show available models
+        "models": [MODEL_NAME], # Show available models
         "last_task_at": STATE["last_task_at"],
         "current_task_id": STATE["current_task_id"],
         "estimated_completion": STATE["estimated_completion"]
@@ -571,7 +566,7 @@ def get_status():
 
 @app.get("/health")
 def health_check():
-    return {"status": "ready (mock mode)" if MOCK_MODE else "ready (production mode)", "models": list(MODELS.keys())}
+    return {"status": "ready (mock mode)" if MOCK_MODE else "ready (production mode)", "models": [MODEL_NAME]}
 
 @app.get("/settings")
 def get_available_settings():
@@ -593,15 +588,12 @@ def get_available_settings():
             "audio_sfx": False
         },
         "model_compatibility": {
-            "pose": ["pose", "general"],
-            "canny": ["canny", "general"],
-            "general": ["general"]
+            MODEL_NAME: model_control_compat.get(MODEL_NAME, [])
         },
         "input_compatibility": {
-            "pose": ["image", "video"],
-            "canny": ["image", "video"],
-            "general": ["image", "video"]
-        }
+            MODEL_NAME: ["image", "video"]
+        },
+        "loaded_model": MODEL_NAME
     }
 
 @app.post("/estimate")
@@ -612,26 +604,20 @@ async def estimate_time(
     aspect_ratio: Optional[AspectRatio] = Form(AspectRatio.SIXTEEN_NINE),
     num_inference_steps: Optional[int] = Form(30),
     control_type: Optional[ControlType] = Form(ControlType.GENERAL),
-    input_type: Optional[InputType] = Form(InputType.IMAGE),
-    model_name: Optional[str] = Form('pose')
+    input_type: Optional[InputType] = Form(InputType.IMAGE)
 ):
     """Estimate generation time without starting the job"""
     if token != API_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid token")
-    
-    # Validate model_name
-    if model_name not in MODELS:
-        raise HTTPException(status_code=400, detail=f"Invalid model_name: {model_name}")
-    model = MODELS[model_name]
 
     # Validate control type matches model
     model_control_compat = {
         'pose': ['pose', 'general'],
         'canny': ['canny', 'general'],
-        'general': ['general']
+        'depth': ['depth', 'general']
     }
-    if control_type not in model_control_compat.get(model_name, []):
-        raise HTTPException(status_code=400, detail=f"Control type '{control_type}' is not compatible with model '{model_name}'")
+    if control_type not in model_control_compat.get(MODEL_NAME, []):
+        raise HTTPException(status_code=400, detail=f"Control type '{control_type}' is not compatible with model '{MODEL_NAME}'")
 
     time_estimate = estimate_generation_time(
         duration=duration,

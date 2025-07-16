@@ -985,3 +985,44 @@ For issues and questions:
 ## License
 
 [Add your license information here]
+
+## 🏁 Update Container Start Command
+
+Use the following command as your container start script to ensure all dependencies, code, and models are set up correctly:
+
+```bash
+bash -c "
+apt update && apt install -y git git-lfs nano ffmpeg;
+git lfs install;
+
+cd /workspace;
+if [ ! -d ltxv-pod ]; then
+  git clone https://github.com/Caveman07/ltxv-pod.git;
+  cd ltxv-pod;
+  git lfs pull;
+else
+  cd ltxv-pod;
+  git reset --hard;
+  git pull;
+  git lfs pull;
+fi;
+
+pip install -r requirements.txt;
+
+# Ensure /app directory and log file exist
+mkdir -p /app
+touch /app/app.log
+chmod 666 /app/app.log
+
+chmod +x scripts/start-prod.sh;
+./scripts/start-prod.sh
+"
+```
+
+**What this does:**
+
+- Installs required system packages (`git`, `git-lfs`, `nano`, `ffmpeg`)
+- Clones or updates the `ltxv-pod` repository
+- Installs Python dependencies
+- Ensures the `/app` directory and log file exist with correct permissions
+- Runs the production start script
