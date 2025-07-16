@@ -1,5 +1,5 @@
 # Stage 1: Model Download (cached separately)
-FROM python:3.11-slim as model-downloader
+FROM runpod/pytorch:2.8.0-py3.11-cuda12.8.1-cudnn-devel-ubuntu22.04 as model-downloader
 
 # Install git and git-lfs for model downloading
 RUN apt-get update && apt-get install -y \
@@ -18,7 +18,7 @@ RUN git clone https://huggingface.co/Lightricks/LTX-Video-ICLoRA-pose-13b-0.9.7 
     git clone https://huggingface.co/Lightricks/LTX-Video-ICLoRA-canny-13b-0.9.7 /app/models/canny
 
 # Stage 2: Application Build
-FROM python:3.11-slim
+FROM runpod/pytorch:2.8.0-py3.11-cuda12.8.1-cudnn-devel-ubuntu22.04
 
 # Set working directory
 WORKDIR /app

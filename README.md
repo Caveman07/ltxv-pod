@@ -12,6 +12,7 @@ A FastAPI-based service for generating videos using LTX (Lightricks) models. Sup
 - 🏥 Health checks and monitoring
 - 🎭 Mock mode for testing
 - 🤖 Automatic model downloading and caching
+- ☁️ RunPod.io deployment support
 
 ## Prerequisites
 
@@ -138,6 +139,139 @@ docker run -d \
   ltxv-pod
 ```
 
+## RunPod.io Deployment
+
+### Quick Deployment on RunPod
+
+RunPod.io provides GPU-powered cloud instances perfect for video generation. Here's how to deploy your LTX Video Pod:
+
+#### Step 1: Prepare Your Repository
+
+1. **Push your code to GitHub** (or another git provider)
+2. **Ensure your repository is public** (or use RunPod's private repo feature)
+
+#### Step 2: Create a RunPod Instance
+
+1. **Go to [RunPod.io](https://www.runpod.io/)**
+2. **Select a GPU template** (recommended: RTX 4090, RTX 3090, or A100)
+3. **Choose your preferred location**
+4. **Set the following configuration:**
+
+**Container Start Command:**
+
+```bash
+bash -c "
+apt update && apt install -y nano git ffmpeg git-lfs;
+git lfs install;
+cd /workspace;
+if [ ! -d ltxv-pod ]; then
+  git clone https://github.com/Caveman07/ltxv-pod.git;
+fi;
+cd ltxv-pod;
+pip install -r requirements.txt;
+if [ ! -d models/pose ] || [ ! -d models/canny ]; then
+  echo 'Downloading models...';
+  ./scripts/download-models.sh;
+fi;
+echo 'Starting LTX Video Pod...';
+uvicorn app:app --host 0.0.0.0 --port 8888
+"
+```
+
+**Environment Variables:**
+
+```bash
+API_TOKEN=your_secure_token_here
+MOCK_MODE=false
+R2_ENABLED=false
+# Add other variables as needed
+```
+
+**Port Configuration:**
+
+- **Port 8888** (matches the uvicorn command above)
+
+#### Step 3: Start and Access
+
+1. **Start the pod**
+2. **Wait for initialization** (models will download on first run)
+3. **Access your API** via the RunPod endpoint:
+   - Health check: `https://your-pod-id.proxy.runpod.net/health`
+   - API docs: `https://your-pod-id.proxy.runpod.net/docs`
+   - Generate endpoint: `https://your-pod-id.proxy.runpod.net/generate`
+
+#### Step 4: Test Your Deployment
+
+```bash
+# Test health endpoint
+curl https://your-pod-id.proxy.runpod.net/health
+
+# Test video generation
+curl -X POST "https://your-pod-id.proxy.runpod.net/generate" \
+  -F "token=your_token" \
+  -F "prompt=A person dancing" \
+  -F "task_id=test_123" \
+  -F "control_image=@test.png"
+```
+
+### RunPod Configuration Options
+
+#### GPU Selection
+
+- **RTX 4090**: Best performance for video generation
+- **RTX 3090**: Good balance of performance and cost
+- **A100**: Enterprise-grade performance (higher cost)
+
+#### Storage Options
+
+- **Use RunPod volumes** for persistent model storage
+- **Attach a volume** to avoid re-downloading models on restart
+
+#### Environment Variables
+
+Set these in RunPod's environment variables section:
+
+```bash
+API_TOKEN=your_secure_token_here
+MOCK_MODE=false
+R2_ENABLED=false
+R2_ACCESS_KEY=your_r2_key
+R2_SECRET_KEY=your_r2_secret
+R2_ENDPOINT=your_r2_endpoint
+R2_BUCKET=your_r2_bucket
+WEBHOOK_URL=your_webhook_url
+```
+
+### RunPod Troubleshooting
+
+#### Common Issues
+
+1. **Models not downloading**
+
+   - Check if git-lfs is installed
+   - Verify internet connection
+   - Check disk space (need ~50GB)
+
+2. **Port not accessible**
+
+   - Ensure port 8888 is configured in RunPod
+   - Check if the app is running on the correct port
+
+3. **Out of memory**
+
+   - Use a GPU with more VRAM
+   - Reduce batch size or model parameters
+
+4. **Slow model loading**
+   - Use RunPod volumes for persistent storage
+   - Consider using a faster GPU instance
+
+#### Monitoring Your Pod
+
+- **Check logs** in RunPod's web interface
+- **Monitor GPU usage** and memory consumption
+- **Use the health endpoint** to verify the service is running
+
 ## Development Setup
 
 ### For Development (Volume Mounts)
@@ -218,6 +352,7 @@ Optional Parameters:
 - num_inference_steps: Number of denoising steps (default: 30)
 - guidance_scale: Guidance scale for generation (default: 7.5)
 - control_type: Type of control (pose, canny, general)
+- model_name: Model to use (pose, canny, general)
 ```
 
 **Example Request (Single Image):**
@@ -235,7 +370,8 @@ curl -X POST "http://localhost:8000/generate" \
   -F "audio_sfx=true" \
   -F "num_inference_steps=50" \
   -F "guidance_scale=8.0" \
-  -F "control_type=pose"
+  -F "control_type=pose" \
+  -F "model_name=pose"
 ```
 
 **Example Request (Video Input):**
@@ -249,7 +385,8 @@ curl -X POST "http://localhost:8000/generate" \
   -F "aspect_ratio=16:9" \
   -F "duration=10" \
   -F "intensity=high" \
-  -F "control_type=pose"
+  -F "control_type=pose" \
+  -F "model_name=pose"
 ```
 
 **Example Response:**
@@ -286,7 +423,8 @@ curl -X POST "http://localhost:8000/generate" \
     "num_inference_steps": 50,
     "guidance_scale": 8.0,
     "control_type": "pose",
-    "input_type": "video"
+    "input_type": "video",
+    "model_name": "pose"
   }
 }
 ```
@@ -305,6 +443,7 @@ Parameters:
 - num_inference_steps: Number of steps (optional, default: 30)
 - control_type: Type of control (optional, default: general)
 - input_type: Type of input (optional, default: image)
+- model_name: Model to use (optional, default: pose)
 ```
 
 **Example Request:**
@@ -317,7 +456,8 @@ curl -X POST "http://localhost:8000/estimate" \
   -d "aspect_ratio=9:16" \
   -d "num_inference_steps=75" \
   -d "control_type=canny" \
-  -d "input_type=video"
+  -d "input_type=video" \
+  -d "model_name=canny"
 ```
 
 **Example Response:**
@@ -367,9 +507,9 @@ GET /settings
     "audio_sfx": false
   },
   "model_compatibility": {
-    "pose": ["pose"],
-    "canny": ["canny"],
-    "general": ["pose", "canny"]
+    "pose": ["pose", "general"],
+    "canny": ["canny", "general"],
+    "general": ["general"]
   },
   "input_compatibility": {
     "pose": ["image", "video"],
@@ -390,7 +530,7 @@ GET /health
 ```json
 {
   "status": "ready (mock mode)",
-  "model": "pose"
+  "models": ["pose", "canny", "general"]
 }
 ```
 
@@ -405,7 +545,7 @@ GET /status
 ```json
 {
   "status": "busy",
-  "model": "pose",
+  "models": ["pose", "canny", "general"],
   "last_task_at": "2024-01-15T10:30:00",
   "current_task_id": "task_123",
   "estimated_completion": "2024-01-15T11:15:00"
@@ -493,6 +633,7 @@ curl -X POST "http://localhost:8000/generate" \
   -F "task_id=pose_task" \
   -F "control_image=@pose_skeleton.png" \
   -F "control_type=pose" \
+  -F "model_name=pose" \
   -F "duration=5" \
   -F "intensity=high"
 ```
@@ -506,6 +647,7 @@ curl -X POST "http://localhost:8000/generate" \
   -F "task_id=pose_video_task" \
   -F "control_video=@dance_movement.mp4" \
   -F "control_type=pose" \
+  -F "model_name=pose" \
   -F "duration=10" \
   -F "intensity=medium"
 ```
@@ -537,6 +679,7 @@ curl -X POST "http://localhost:8000/generate" \
   -F "task_id=canny_task" \
   -F "control_image=@building_edges.png" \
   -F "control_type=canny" \
+  -F "model_name=canny" \
   -F "duration=10" \
   -F "intensity=medium"
 ```
@@ -550,6 +693,7 @@ curl -X POST "http://localhost:8000/generate" \
   -F "task_id=canny_video_task" \
   -F "control_video=@shape_transformation.mp4" \
   -F "control_type=canny" \
+  -F "model_name=canny" \
   -F "duration=15" \
   -F "intensity=high"
 ```
