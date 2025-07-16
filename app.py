@@ -297,7 +297,7 @@ if MOCK_MODE:
     logging.info("Running in MOCK mode.")
     MODEL = MockPipeline()
 else:
-    from diffusers import StableDiffusionPipeline
+    from diffusers import StableDiffusionPipeline, DiffusionPipeline
     import torch
     from safetensors.torch import load_file as load_safetensors
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -312,13 +312,42 @@ else:
             else:
                 logging.info(f"Loading base model from {base_model_path}")
                 try:
-                    pipe = StableDiffusionPipeline.from_single_file(
-                        base_model_path,
-                        torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
-                        use_safetensors=True,
-                        load_safety_checker=False,
-                        local_files_only=True
-                    ).to(DEVICE)
+                    # First, let's inspect what's in the safetensors file
+                    from safetensors.torch import load_file
+                    state_dict = load_file(base_model_path)
+                    logging.info(f"📊 Safetensors file contains {len(state_dict)} keys")
+                    logging.info(f"📋 Sample keys: {list(state_dict.keys())[:10]}")
+                    
+                    # Try loading with different approaches
+                    try:
+                        # Approach 1: Standard diffusers loading
+                        pipe = StableDiffusionPipeline.from_single_file(
+                            base_model_path,
+                            torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
+                            use_safetensors=True,
+                            load_safety_checker=False,
+                            local_files_only=True
+                        ).to(DEVICE)
+                        logging.info("✅ Loaded with standard diffusers approach")
+                    except Exception as e1:
+                        logging.warning(f"Standard loading failed: {e1}")
+                        try:
+                            # Approach 2: Try without safetensors flag
+                            pipe = StableDiffusionPipeline.from_single_file(
+                                base_model_path,
+                                torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
+                                load_safety_checker=False,
+                                local_files_only=True
+                            ).to(DEVICE)
+                            logging.info("✅ Loaded without safetensors flag")
+                        except Exception as e2:
+                            logging.warning(f"Alternative loading failed: {e2}")
+                            # Approach 3: Try with minimal parameters
+                            pipe = StableDiffusionPipeline.from_single_file(
+                                base_model_path,
+                                torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32
+                            ).to(DEVICE)
+                            logging.info("✅ Loaded with minimal parameters")
 
                     if DEVICE == "cuda":
                         pipe.enable_model_cpu_offload()
@@ -327,8 +356,19 @@ else:
                     logging.info(f"✅ Base model loaded on {DEVICE}")
                 except Exception as e:
                     logging.error(f"❌ Failed to load base model: {e}")
-                    MODEL = MockPipeline()
-                    logging.info("Using mock pipeline for base model")
+                    # Try fallback with DiffusionPipeline
+                    try:
+                        logging.info("🔄 Trying fallback with DiffusionPipeline...")
+                        pipe = DiffusionPipeline.from_single_file(
+                            base_model_path,
+                            torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32
+                        ).to(DEVICE)
+                        MODEL = pipe
+                        logging.info(f"✅ Base model loaded with DiffusionPipeline on {DEVICE}")
+                    except Exception as e2:
+                        logging.error(f"❌ Fallback also failed: {e2}")
+                        MODEL = MockPipeline()
+                        logging.info("Using mock pipeline for base model")
         else:
             # Load specialized model (pose, canny, depth) with LoRA
             base_model_path = "models/base/ltxv-13b-0.9.7-dev.safetensors"

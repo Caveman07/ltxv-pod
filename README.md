@@ -64,9 +64,6 @@ nano .env
 API_TOKEN=your_secure_token_here
 MOCK_MODE=true  # Set to false for production
 
-# Model Configuration
-MODEL_NAME=base  # Options: base, pose, canny, depth (only one model is loaded to save memory)
-
 # Storage Configuration
 R2_ENABLED=false  # Set to true to use Cloudflare R2
 
@@ -311,28 +308,26 @@ uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 
 ### Environment Variables
 
-| Variable        | Default    | Description                              |
-| --------------- | ---------- | ---------------------------------------- |
-| `API_TOKEN`     | `changeme` | Authentication token for API access      |
-| `MOCK_MODE`     | `true`     | Enable mock mode for testing             |
-| `MODEL_NAME`    | `base`     | Model to load (base, pose, canny, depth) |
-| `R2_ENABLED`    | `false`    | Enable Cloudflare R2 upload              |
-| `R2_ACCESS_KEY` | -          | R2 access key                            |
-| `R2_SECRET_KEY` | -          | R2 secret key                            |
-| `R2_ENDPOINT`   | -          | R2 endpoint URL                          |
-| `R2_BUCKET`     | -          | R2 bucket name                           |
-| `WEBHOOK_URL`   | -          | Webhook URL for notifications            |
+| Variable        | Default    | Description                         |
+| --------------- | ---------- | ----------------------------------- |
+| `API_TOKEN`     | `changeme` | Authentication token for API access |
+| `MOCK_MODE`     | `true`     | Enable mock mode for testing        |
+| `R2_ENABLED`    | `false`    | Enable Cloudflare R2 upload         |
+| `R2_ACCESS_KEY` | -          | R2 access key                       |
+| `R2_SECRET_KEY` | -          | R2 secret key                       |
+| `R2_ENDPOINT`   | -          | R2 endpoint URL                     |
+| `R2_BUCKET`     | -          | R2 bucket name                      |
+| `WEBHOOK_URL`   | -          | Webhook URL for notifications       |
 
 ### Model Configuration
 
-The service supports multiple LTX models, but only one model is loaded at a time to prevent memory issues:
+The service supports multiple LTX models:
 
-- **base**: Base LTX model for general video generation
 - **pose**: For pose-guided video generation
 - **canny**: For edge-guided video generation
-- **depth**: For depth-guided video generation
+- **general**: For general image-to-video generation
 
-**Important**: Only one model is loaded based on the `MODEL_NAME` environment variable. This prevents running out of memory when multiple large models are available. To use a different model, change the `MODEL_NAME` environment variable and restart the service.
+All models are loaded and available by default. You can select the model per request using the API.
 
 ## API Usage
 
@@ -356,7 +351,8 @@ Optional Parameters:
 - audio_sfx: Enable automatic sound effects (true/false)
 - num_inference_steps: Number of denoising steps (default: 30)
 - guidance_scale: Guidance scale for generation (default: 7.5)
-- control_type: Type of control (pose, canny, depth, general)
+- control_type: Type of control (pose, canny, general)
+- model_name: Model to use (pose, canny, general)
 ```
 
 **Example Request (Single Image):**
@@ -989,44 +985,3 @@ For issues and questions:
 ## License
 
 [Add your license information here]
-
-## 🏁 Update Container Start Command
-
-Use the following command as your container start script to ensure all dependencies, code, and models are set up correctly:
-
-```bash
-bash -c "
-apt update && apt install -y git git-lfs nano ffmpeg;
-git lfs install;
-
-cd /workspace;
-if [ ! -d ltxv-pod ]; then
-  git clone https://github.com/Caveman07/ltxv-pod.git;
-  cd ltxv-pod;
-  git lfs pull;
-else
-  cd ltxv-pod;
-  git reset --hard;
-  git pull;
-  git lfs pull;
-fi;
-
-pip install -r requirements.txt;
-
-# Ensure /app directory and log file exist
-mkdir -p /app
-touch /app/app.log
-chmod 666 /app/app.log
-
-chmod +x scripts/start-prod.sh;
-./scripts/start-prod.sh
-"
-```
-
-**What this does:**
-
-- Installs required system packages (`git`, `git-lfs`, `nano`, `ffmpeg`)
-- Clones or updates the `ltxv-pod` repository
-- Installs Python dependencies
-- Ensures the `/app` directory and log file exist with correct permissions
-- Runs the production start script
