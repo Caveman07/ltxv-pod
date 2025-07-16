@@ -18,11 +18,9 @@ chmod 755 videos
 chmod 755 logs
 chmod 755 models
 
-# Ensure /app directory and log file exist for logging
-echo "📝 Setting up logging..."
-mkdir -p /app
-touch /app/app.log
-chmod 666 /app/app.log
+# Ensure log file exists in a writable location
+touch app.log
+chmod 666 app.log
 
 # Download models if missing
 if [ ! -d "models/pose" ] || [ ! -d "models/canny" ]; then
@@ -57,5 +55,11 @@ else
     echo "📁 Local storage enabled"
 fi
 
+# Ensure uvicorn is installed
+if ! python -c "import uvicorn" 2>/dev/null; then
+    echo "Uvicorn not found. Installing..."
+    pip install uvicorn
+fi
+
 echo "🎬 Starting LTX Video Pod server..."
-uvicorn app:app --host 0.0.0.0 --port 8000 
+python -m uvicorn app:app --host 0.0.0.0 --port 8000 
