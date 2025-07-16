@@ -1,7 +1,6 @@
 #!/bin/bash
 
-# LTX Video Pod Startup Script with Model Management
-
+# LTX Video Pod Startup Script with Model Management (RunPod compatible)
 set -e
 
 echo "🚀 Starting LTX Video Pod with Model Management..."
@@ -63,31 +62,10 @@ else
     echo "📁 Local storage enabled"
 fi
 
-# Start the service
-echo "🎬 Starting LTX Video Pod..."
-if command -v docker-compose &> /dev/null; then
-    echo "🐳 Using Docker Compose with volume mounts..."
-    docker-compose up -d
-    echo "✅ Service started!"
-    echo "📊 Check status: docker-compose ps"
-    echo "📋 View logs: docker-compose logs -f ltxv-pod"
-    echo "🌐 Health check: http://localhost:8000/health"
-else
-    echo "🐳 Using Docker with volume mounts..."
-    docker build -t ltxv-pod .
-    docker run -d \
-        --name ltxv-pod \
-        -p 8000:8000 \
-        -v $(pwd)/videos:/app/videos \
-        -v $(pwd)/logs:/app/logs \
-        -v $(pwd)/models:/app/models \
-        --env-file .env \
-        ltxv-pod
-    echo "✅ Service started!"
-    echo "📊 Check status: docker ps"
-    echo "📋 View logs: docker logs ltxv-pod"
-    echo "🌐 Health check: http://localhost:8000/health"
-fi
+# Start the FastAPI app directly
+
+echo "🎬 Starting LTX Video Pod server..."
+uvicorn app:app --host 0.0.0.0 --port 8000
 
 echo ""
 echo "🎉 LTX Video Pod is ready!"
