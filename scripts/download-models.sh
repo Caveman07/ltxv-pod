@@ -13,6 +13,20 @@ if [ ! -d "$MODELS_DIR" ]; then
     mkdir -p "$MODELS_DIR"
 fi
 
+# Download base model
+BASE_MODEL_DIR="$MODELS_DIR/base"
+BASE_MODEL_FILE="$BASE_MODEL_DIR/ltxv-13b-0.9.7-dev.safetensors"
+BASE_MODEL_URL="https://huggingface.co/Lightricks/LTX-Video/resolve/main/ltxv-13b-0.9.7-dev.safetensors"
+
+if [ ! -f "$BASE_MODEL_FILE" ]; then
+    echo "📥 Downloading base model..."
+    mkdir -p "$BASE_MODEL_DIR"
+    wget -O "$BASE_MODEL_FILE" "$BASE_MODEL_URL"
+    echo "✅ Base model downloaded: $BASE_MODEL_FILE"
+else
+    echo "⏭️ Base model already exists, skipping..."
+fi
+
 # Check if git-lfs is installed
 if ! command -v git-lfs &> /dev/null; then
     echo "❌ git-lfs is not installed. Please install it first:"
