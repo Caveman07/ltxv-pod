@@ -58,4 +58,4 @@ else
 fi
 
 echo "🎬 Starting LTX Video Pod server..."
-python -m uvicorn app:app --host 0.0.0.0 --port 8000 
+uvicorn app:app --host 0.0.0.0 --port 8000 
