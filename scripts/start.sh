@@ -25,6 +25,10 @@ chmod 755 videos
 chmod 755 logs
 chmod 755 models
 
+# Ensure log file exists in a writable location
+touch app.log
+chmod 666 app.log
+
 # Load environment variables
 echo "⚙️  Loading environment variables..."
 source .env
@@ -43,5 +47,11 @@ else
     echo "✅ Models already exist"
 fi
 
+# Ensure uvicorn is installed
+if ! python -c "import uvicorn" 2>/dev/null; then
+    echo "Uvicorn not found. Installing..."
+    pip install uvicorn
+fi
+
 echo "🎬 Starting LTX Video Pod server..."
-uvicorn app:app --host 0.0.0.0 --port 8000 
+python -m uvicorn app:app --host 0.0.0.0 --port 8000 

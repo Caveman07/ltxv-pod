@@ -25,7 +25,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
     handlers=[
-        logging.FileHandler("/app/app.log"),
+        logging.FileHandler("app.log"),
         logging.StreamHandler()
     ]
 )
@@ -33,10 +33,10 @@ logging.basicConfig(
 app = FastAPI()
 
 # Создаем директорию для видео если не существует
-os.makedirs("/app/videos", exist_ok=True)
+os.makedirs("videos", exist_ok=True)
 
 # Монтируем статические файлы для доступа к видео
-app.mount("/videos", StaticFiles(directory="/app/videos"), name="videos")
+app.mount("/videos", StaticFiles(directory="videos"), name="videos")
 
 API_TOKEN = os.getenv("API_TOKEN", "changeme")
 MOCK_MODE = os.getenv("MOCK_MODE", "true").lower() == "true"
@@ -466,11 +466,11 @@ async def generate(
                 video_url = None
         else:
             # Сохраняем файл локально
-            local_video_path = f"/app/videos/{task_id}_{uuid.uuid4().hex}.mp4"
+            local_video_path = f"videos/{task_id}_{uuid.uuid4().hex}.mp4"
             try:
                 import shutil
                 # Создаем директорию если не существует
-                os.makedirs("/app/videos", exist_ok=True)
+                os.makedirs("videos", exist_ok=True)
                 # Копируем файл в локальную директорию
                 shutil.copy2(output_path, local_video_path)
                 # Используем HTTP endpoint для доступа к файлу
