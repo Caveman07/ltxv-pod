@@ -37,8 +37,11 @@ source .env
 
 if [ "$MOCK_MODE" = "false" ]; then
     # Download models if missing
-    if [ ! -d "models/pose" ] || [ ! -d "models/canny" ] || [ ! -f "models/base/ltxv-13b-0.9.7-dev.safetensors" ]; then
-        echo "🤖 Models or base model not found. Downloading models..."
+    if [ ! -f "models/base/ltxv-13b-0.9.7-dev.safetensors" ] || \
+       [ ! -f "models/pose/ltxv-097-ic-lora-pose-control-diffusers.safetensors" ] || \
+       [ ! -f "models/canny/ltxv-097-ic-lora-canny-control-diffusers.safetensors" ] || \
+       [ ! -f "models/depth/ltxv-097-ic-lora-depth-control-diffusers.safetensors" ]; then
+        echo "🤖 One or more required model files not found. Downloading models..."
         if [ -f "scripts/download-models.sh" ]; then
             chmod +x scripts/download-models.sh
             ./scripts/download-models.sh
@@ -47,7 +50,7 @@ if [ "$MOCK_MODE" = "false" ]; then
             exit 1
         fi
     else
-        echo "✅ Models and base model already exist"
+        echo "✅ All required model files already exist"
     fi
 else
     echo "🧪 MOCK_MODE is true, skipping model download."
