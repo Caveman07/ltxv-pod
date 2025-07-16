@@ -297,7 +297,7 @@ if MOCK_MODE:
     logging.info("Running in MOCK mode.")
     MODEL = MockPipeline()
 else:
-    from diffusers import StableDiffusionPipeline, DiffusionPipeline
+    from diffusers import StableDiffusionPipeline, DiffusionPipeline, AutoPipelineForText2Image
     import torch
     from safetensors.torch import load_file as load_safetensors
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -341,13 +341,36 @@ else:
                             ).to(DEVICE)
                             logging.info("✅ Loaded without safetensors flag")
                         except Exception as e2:
-                            logging.warning(f"Alternative loading failed: {e2}")
+                            logging.error(f"Alternative loading failed: {e2}")
                             # Approach 3: Try with minimal parameters
                             pipe = StableDiffusionPipeline.from_single_file(
                                 base_model_path,
                                 torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32
                             ).to(DEVICE)
                             logging.info("✅ Loaded with minimal parameters")
+                        except Exception as e3:
+                            logging.error(f"Minimal loading failed: {e3}")
+                            # Approach 4: Try loading as a custom model from directory
+                            try:
+                                logging.info("🔄 Trying to load as custom model from directory...")
+                                # Create a temporary directory structure that diffusers expects
+                                import tempfile
+                                import shutil
+                                with tempfile.TemporaryDirectory() as temp_dir:
+                                    # Copy the safetensors file to the temp directory
+                                    temp_model_path = os.path.join(temp_dir, "model.safetensors")
+                                    shutil.copy2(base_model_path, temp_model_path)
+                                    
+                                    # Try loading from the directory
+                                    pipe = StableDiffusionPipeline.from_pretrained(
+                                        temp_dir,
+                                        torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
+                                        local_files_only=True
+                                    ).to(DEVICE)
+                                    logging.info("✅ Loaded as custom model from directory")
+                            except Exception as e4:
+                                logging.error(f"Custom model loading failed: {e4}")
+                                raise e4
 
                     if DEVICE == "cuda":
                         pipe.enable_model_cpu_offload()
@@ -367,8 +390,19 @@ else:
                         logging.info(f"✅ Base model loaded with DiffusionPipeline on {DEVICE}")
                     except Exception as e2:
                         logging.error(f"❌ Fallback also failed: {e2}")
-                        MODEL = MockPipeline()
-                        logging.info("Using mock pipeline for base model")
+                        # Try AutoPipeline as final fallback
+                        try:
+                            logging.info("🔄 Trying AutoPipelineForText2Image...")
+                            pipe = AutoPipelineForText2Image.from_single_file(
+                                base_model_path,
+                                torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32
+                            ).to(DEVICE)
+                            MODEL = pipe
+                            logging.info(f"✅ Base model loaded with AutoPipeline on {DEVICE}")
+                        except Exception as e3:
+                            logging.error(f"❌ AutoPipeline also failed: {e3}")
+                            MODEL = MockPipeline()
+                            logging.info("Using mock pipeline for base model")
         else:
             # Load specialized model (pose, canny, depth) with LoRA
             base_model_path = "models/base/ltxv-13b-0.9.7-dev.safetensors"
