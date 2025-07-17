@@ -23,9 +23,18 @@ if [ ! -f "app.py" ]; then
     exit 1
 fi
 
+# Upgrade pip first to avoid distutils issues
+echo "📦 Upgrading pip to latest version..."
+python3 -m pip install --upgrade pip
+
+# Fix blinker distutils issue specifically
+echo "🔧 Fixing blinker distutils issue..."
+python3 -m pip install --ignore-installed blinker || true
+
 # Install dependencies if requirements.txt exists
 if [ -f "requirements.txt" ]; then
     echo "📦 Installing Python dependencies..."
+    # Install without force-reinstall to avoid upgrading existing packages
     pip3 install -r requirements.txt
 else
     echo "⚠️ requirements.txt not found, skipping dependency installation"
@@ -56,8 +65,8 @@ echo "   HF_DATASETS_CACHE: $HF_DATASETS_CACHE"
 
 echo "🔧 Starting LTX Video Pod with official diffusers approach..."
 echo "   Models will be automatically downloaded and cached on first run"
-echo "   Base model: Lightricks/LTX-Video-0.9.8-dev"
-echo "   Upscaler: Lightricks/ltxv-spatial-upscaler-0.9.8"
+echo "   Base model: Lightricks/LTX-Video-0.9.7-dev"
+echo "   Upscaler: Lightricks/ltxv-spatial-upscaler-0.9.7"
 
 # Start the application
 python3 app.py 

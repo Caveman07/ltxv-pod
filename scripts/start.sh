@@ -36,8 +36,8 @@ python3 -m pip install --ignore-installed blinker || true
 # Install dependencies if requirements.txt exists
 if [ -f "requirements.txt" ]; then
     echo "📦 Installing Python dependencies..."
-    # Use force-reinstall to handle distutils conflicts
-    pip3 install --force-reinstall -r requirements.txt
+    # Install without force-reinstall to avoid upgrading existing packages
+    pip3 install -r requirements.txt
 else
     echo "⚠️ requirements.txt not found, skipping dependency installation"
 fi
