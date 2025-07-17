@@ -72,5 +72,5 @@ echo "   Base model: Lightricks/LTX-Video-0.9.7-dev"
 echo "   Upscaler: Lightricks/ltxv-spatial-upscaler-0.9.7"
 echo "   Port: $PORT"
 
-# Start the application with gunicorn for production
-gunicorn --bind 0.0.0.0:$PORT --workers 1 --timeout 300 --keep-alive 2 app:app 
+# Start the application with Flask built-in server
+python3 app.py 
