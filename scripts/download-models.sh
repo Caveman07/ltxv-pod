@@ -87,57 +87,45 @@ fi
 T5_DIR="$MODELS_DIR/t5-v1_1-large"
 if [ ! -d "$T5_DIR" ] || [ -z "$(ls -A $T5_DIR 2>/dev/null)" ]; then
     echo "📥 Downloading T5 encoder and tokenizer (google/t5-v1_1-large)..."
-    python3 -c "
-import os
-import shutil
-from transformers import T5EncoderModel, T5Tokenizer
-
-# Create target directory
-if not os.path.exists('$T5_DIR'):
-    os.makedirs('$T5_DIR')
-
-print('Downloading T5 encoder...')
-try:
-    # Download directly to target directory
-    encoder = T5EncoderModel.from_pretrained('google/t5-v1_1-large', cache_dir='$T5_DIR')
-    print('T5 encoder downloaded successfully')
-except Exception as e:
-    print(f'Error downloading encoder: {e}')
-    # Try alternative approach - download to temp then copy
-    import tempfile
-    with tempfile.TemporaryDirectory() as temp_dir:
-        print('Trying alternative download method...')
-        encoder = T5EncoderModel.from_pretrained('google/t5-v1_1-large', cache_dir=temp_dir)
-        # Find the downloaded files
-        for root, dirs, files in os.walk(temp_dir):
-            for file in files:
-                if file in ['config.json', 'pytorch_model.bin', 'tokenizer.json', 'tokenizer_config.json', 'special_tokens_map.json']:
-                    src = os.path.join(root, file)
-                    dst = os.path.join('$T5_DIR', file)
-                    shutil.copy2(src, dst)
-                    print(f'Copied {file} to $T5_DIR')
-
-print('Downloading T5 tokenizer...')
-try:
-    tokenizer = T5Tokenizer.from_pretrained('google/t5-v1_1-large', cache_dir='$T5_DIR')
-    print('T5 tokenizer downloaded successfully')
-except Exception as e:
-    print(f'Error downloading tokenizer: {e}')
-    # Tokenizer files should already be copied from encoder download
-
-print('Verifying T5 files...')
-required_files = ['config.json', 'pytorch_model.bin', 'tokenizer.json']
-missing_files = []
-for file in required_files:
-    if not os.path.exists(os.path.join('$T5_DIR', file)):
-        missing_files.append(file)
-
-if missing_files:
-    print(f'Warning: Missing files: {missing_files}')
-else:
-    print('All T5 files verified successfully')
-"
-    echo "✅ T5 encoder and tokenizer downloaded: $T5_DIR"
+    mkdir -p "$T5_DIR"
+    
+    # Download T5 model files directly from HuggingFace
+    T5_BASE_URL="https://huggingface.co/google/t5-v1_1-large/resolve/main"
+    
+    echo "Downloading T5 config.json..."
+    wget -O "$T5_DIR/config.json" "$T5_BASE_URL/config.json"
+    
+    echo "Downloading T5 pytorch_model.bin..."
+    wget -O "$T5_DIR/pytorch_model.bin" "$T5_BASE_URL/pytorch_model.bin"
+    
+    echo "Downloading T5 tokenizer.json..."
+    wget -O "$T5_DIR/tokenizer.json" "$T5_BASE_URL/tokenizer.json"
+    
+    echo "Downloading T5 tokenizer_config.json..."
+    wget -O "$T5_DIR/tokenizer_config.json" "$T5_BASE_URL/tokenizer_config.json"
+    
+    echo "Downloading T5 special_tokens_map.json..."
+    wget -O "$T5_DIR/special_tokens_map.json" "$T5_BASE_URL/special_tokens_map.json"
+    
+    echo "Downloading T5 spiece.model..."
+    wget -O "$T5_DIR/spiece.model" "$T5_BASE_URL/spiece.model"
+    
+    # Verify all required files are present
+    required_files=("config.json" "pytorch_model.bin" "tokenizer.json")
+    missing_files=()
+    
+    for file in "${required_files[@]}"; do
+        if [ ! -f "$T5_DIR/$file" ]; then
+            missing_files+=("$file")
+        fi
+    done
+    
+    if [ ${#missing_files[@]} -eq 0 ]; then
+        echo "✅ All T5 files downloaded successfully"
+    else
+        echo "❌ Missing T5 files: ${missing_files[*]}"
+        echo "T5 download may have failed. Check your internet connection."
+    fi
 else
     echo "⏭️ T5 encoder and tokenizer already exist, skipping..."
 fi
