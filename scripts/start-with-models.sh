@@ -23,10 +23,15 @@ if [ ! -f "app.py" ]; then
     exit 1
 fi
 
+# Upgrade pip first to avoid distutils issues
+echo "📦 Upgrading pip to latest version..."
+python3 -m pip install --upgrade pip
+
 # Install dependencies if requirements.txt exists
 if [ -f "requirements.txt" ]; then
     echo "📦 Installing Python dependencies..."
-    pip3 install -r requirements.txt
+    # Use force-reinstall to handle distutils conflicts
+    pip3 install --force-reinstall -r requirements.txt
 else
     echo "⚠️ requirements.txt not found, skipping dependency installation"
 fi
