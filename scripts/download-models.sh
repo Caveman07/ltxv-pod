@@ -130,6 +130,25 @@ else
     echo "⏭️ T5 encoder and tokenizer already exist, skipping..."
 fi
 
+# Check if T5 files are in the wrong location and fix them
+if [ -d "$T5_DIR/models--google--t5-v1_1-large" ]; then
+    echo "🔧 Found T5 files in cache subdirectory, moving them to correct location..."
+    
+    # Find the actual model files in the cache structure
+    CACHE_DIR="$T5_DIR/models--google--t5-v1_1-large"
+    if [ -d "$CACHE_DIR/snapshots" ]; then
+        SNAPSHOT_DIR=$(find "$CACHE_DIR/snapshots" -type d -name "*" | head -1)
+        if [ -n "$SNAPSHOT_DIR" ]; then
+            HASH_DIR=$(find "$SNAPSHOT_DIR" -type d -name "*" | head -1)
+            if [ -n "$HASH_DIR" ]; then
+                echo "📁 Moving T5 files from $HASH_DIR to $T5_DIR"
+                cp -r "$HASH_DIR"/* "$T5_DIR/"
+                echo "✅ T5 files moved successfully"
+            fi
+        fi
+    fi
+fi
+
 echo ""
 echo "🎉 All models downloaded successfully!"
 echo "📁 Models location: $MODELS_DIR"
