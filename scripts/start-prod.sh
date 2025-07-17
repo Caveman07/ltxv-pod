@@ -28,6 +28,10 @@ fi
 echo "📦 Upgrading pip to latest version..."
 python3 -m pip install --upgrade pip
 
+# Fix blinker distutils issue specifically
+echo "🔧 Fixing blinker distutils issue..."
+python3 -m pip install --ignore-installed blinker || true
+
 # Install dependencies if requirements.txt exists
 if [ -f "requirements.txt" ]; then
     echo "📦 Installing Python dependencies..."
