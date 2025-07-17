@@ -304,121 +304,137 @@ else:
     from diffusers import LTXConditionPipeline, LTXLatentUpsamplePipeline
     from diffusers.pipelines.ltx.pipeline_ltx_condition import LTXVideoCondition
     from diffusers.utils import export_to_video, load_image, load_video
+    from transformers import T5EncoderModel, T5Tokenizer
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
     try:
         logging.info(f"Loading LTX Video model: {MODEL_NAME} from local files...")
         
-        # Load the main LTX pipeline from local safetensors file
-        base_model_path = "models/base/ltxv-13b-0.9.7-dev.safetensors"
-        if not os.path.exists(base_model_path):
-            logging.error(f"Base model file not found: {base_model_path}")
+        # Load T5 encoder and tokenizer from local directory
+        t5_dir = "models/t5-v1_1-large"
+        if not os.path.exists(t5_dir) or not os.path.isdir(t5_dir):
+            logging.error(f"T5 encoder/tokenizer directory not found: {t5_dir}. Please download T5 to this location.")
             MODEL = MockPipeline()
+            PIPE_UPSAMPLE = None
+            POSE_LORA = None
+            CANNY_LORA = None
         else:
-            MODEL = LTXConditionPipeline.from_single_file(
-                base_model_path,
-                torch_dtype=torch.bfloat16
-            ).to(DEVICE)
-            
-            # Load LoRA models based on MODEL_NAME (only load what's needed)
-            if MODEL_NAME == "pose":
-                pose_lora_path = "models/pose/ltxv-097-ic-lora-pose-control-diffusers.safetensors"
-                if os.path.exists(pose_lora_path):
-                    try:
-                        POSE_LORA = torch.load(pose_lora_path, map_location=DEVICE)
-                        logging.info("✅ Pose LoRA model loaded from local file")
-                    except Exception as e:
-                        logging.warning(f"⚠️ Could not load pose LoRA model: {e}")
-                        POSE_LORA = None
-                else:
-                    logging.warning(f"⚠️ Pose LoRA model file not found: {pose_lora_path}")
-                    POSE_LORA = None
-                CANNY_LORA = None  # Don't load canny model in pose mode
-            
-            elif MODEL_NAME == "canny":
-                canny_lora_path = "models/canny/ltxv-097-ic-lora-canny-control-diffusers.safetensors"
-                if os.path.exists(canny_lora_path):
-                    try:
-                        CANNY_LORA = torch.load(canny_lora_path, map_location=DEVICE)
-                        logging.info("✅ Canny LoRA model loaded from local file")
-                    except Exception as e:
-                        logging.warning(f"⚠️ Could not load canny LoRA model: {e}")
-                        CANNY_LORA = None
-                else:
-                    logging.warning(f"⚠️ Canny LoRA model file not found: {canny_lora_path}")
-                    CANNY_LORA = None
-                POSE_LORA = None  # Don't load pose model in canny mode
-            
-            elif MODEL_NAME == "all":
-                # Load both LoRA models for "all" mode
-                pose_lora_path = "models/pose/ltxv-097-ic-lora-pose-control-diffusers.safetensors"
-                if os.path.exists(pose_lora_path):
-                    try:
-                        POSE_LORA = torch.load(pose_lora_path, map_location=DEVICE)
-                        logging.info("✅ Pose LoRA model loaded from local file")
-                    except Exception as e:
-                        logging.warning(f"⚠️ Could not load pose LoRA model: {e}")
-                        POSE_LORA = None
-                else:
-                    logging.warning(f"⚠️ Pose LoRA model file not found: {pose_lora_path}")
-                    POSE_LORA = None
-                
-                canny_lora_path = "models/canny/ltxv-097-ic-lora-canny-control-diffusers.safetensors"
-                if os.path.exists(canny_lora_path):
-                    try:
-                        CANNY_LORA = torch.load(canny_lora_path, map_location=DEVICE)
-                        logging.info("✅ Canny LoRA model loaded from local file")
-                    except Exception as e:
-                        logging.warning(f"⚠️ Could not load canny LoRA model: {e}")
-                        CANNY_LORA = None
-                else:
-                    logging.warning(f"⚠️ Canny LoRA model file not found: {canny_lora_path}")
-                    CANNY_LORA = None
-            
-            else:  # base mode or any other value
-                # Don't load any LoRA models in base mode
-                POSE_LORA = None
-                CANNY_LORA = None
-                logging.info("📋 Base mode: No LoRA models loaded (memory efficient)")
-            
-            # Load the upsampling pipeline from local file (version 0.9.7)
-            upscaler_model_path = "models/upscaler/ltxv-spatial-upscaler-0.9.7.safetensors"
-            if os.path.exists(upscaler_model_path):
-                try:
-                    PIPE_UPSAMPLE = LTXLatentUpsamplePipeline.from_single_file(
-                        upscaler_model_path,
-                        vae=MODEL.vae, 
-                        torch_dtype=torch.bfloat16
-                    ).to(DEVICE)
-                    logging.info("✅ Upsampling pipeline loaded from local file (v0.9.7)")
-                except Exception as e:
-                    logging.warning(f"⚠️ Could not load upsampling pipeline from local file: {e}")
-                    PIPE_UPSAMPLE = None
+            logging.info(f"Loading T5 encoder and tokenizer from {t5_dir} ...")
+            text_encoder = T5EncoderModel.from_pretrained(t5_dir)
+            tokenizer = T5Tokenizer.from_pretrained(t5_dir)
+
+            # Load the main LTX pipeline from local safetensors file
+            base_model_path = "models/base/ltxv-13b-0.9.7-dev.safetensors"
+            if not os.path.exists(base_model_path):
+                logging.error(f"Base model file not found: {base_model_path}")
+                MODEL = MockPipeline()
             else:
-                logging.warning(f"⚠️ Upscaler model file not found: {upscaler_model_path}")
-                PIPE_UPSAMPLE = None
-            
-            # Enable tiling for VAE
-            MODEL.vae.enable_tiling()
-            
-            logging.info(f"✅ LTX Video model loaded from local file on {DEVICE}")
-            logging.info(f"📋 Model configuration: {MODEL_NAME}")
-            
-            # Log what's available based on MODEL_NAME
-            if MODEL_NAME == "base":
-                logging.info("🎯 Base mode: Only general video generation available")
-            elif MODEL_NAME == "pose":
-                logging.info("🎭 Pose mode: Pose accordance + general video generation available")
-            elif MODEL_NAME == "canny":
-                logging.info("🎨 Canny mode: Canny accordance + general video generation available")
-            elif MODEL_NAME == "all":
-                logging.info("🌟 All modes: Pose, canny, and general video generation available")
-            
-            if POSE_LORA:
-                logging.info("✅ Pose LoRA model loaded and ready")
-            if CANNY_LORA:
-                logging.info("✅ Canny LoRA model loaded and ready")
-        
+                MODEL = LTXConditionPipeline.from_single_file(
+                    base_model_path,
+                    text_encoder=text_encoder,
+                    tokenizer=tokenizer,
+                    torch_dtype=torch.bfloat16
+                ).to(DEVICE)
+                
+                # Load LoRA models based on MODEL_NAME (only load what's needed)
+                if MODEL_NAME == "pose":
+                    pose_lora_path = "models/pose/ltxv-097-ic-lora-pose-control-diffusers.safetensors"
+                    if os.path.exists(pose_lora_path):
+                        try:
+                            POSE_LORA = torch.load(pose_lora_path, map_location=DEVICE)
+                            logging.info("✅ Pose LoRA model loaded from local file")
+                        except Exception as e:
+                            logging.warning(f"⚠️ Could not load pose LoRA model: {e}")
+                            POSE_LORA = None
+                    else:
+                        logging.warning(f"⚠️ Pose LoRA model file not found: {pose_lora_path}")
+                        POSE_LORA = None
+                    CANNY_LORA = None  # Don't load canny model in pose mode
+                
+                elif MODEL_NAME == "canny":
+                    canny_lora_path = "models/canny/ltxv-097-ic-lora-canny-control-diffusers.safetensors"
+                    if os.path.exists(canny_lora_path):
+                        try:
+                            CANNY_LORA = torch.load(canny_lora_path, map_location=DEVICE)
+                            logging.info("✅ Canny LoRA model loaded from local file")
+                        except Exception as e:
+                            logging.warning(f"⚠️ Could not load canny LoRA model: {e}")
+                            CANNY_LORA = None
+                    else:
+                        logging.warning(f"⚠️ Canny LoRA model file not found: {canny_lora_path}")
+                        CANNY_LORA = None
+                    POSE_LORA = None  # Don't load pose model in canny mode
+                
+                elif MODEL_NAME == "all":
+                    # Load both LoRA models for "all" mode
+                    pose_lora_path = "models/pose/ltxv-097-ic-lora-pose-control-diffusers.safetensors"
+                    if os.path.exists(pose_lora_path):
+                        try:
+                            POSE_LORA = torch.load(pose_lora_path, map_location=DEVICE)
+                            logging.info("✅ Pose LoRA model loaded from local file")
+                        except Exception as e:
+                            logging.warning(f"⚠️ Could not load pose LoRA model: {e}")
+                            POSE_LORA = None
+                    else:
+                        logging.warning(f"⚠️ Pose LoRA model file not found: {pose_lora_path}")
+                        POSE_LORA = None
+                    
+                    canny_lora_path = "models/canny/ltxv-097-ic-lora-canny-control-diffusers.safetensors"
+                    if os.path.exists(canny_lora_path):
+                        try:
+                            CANNY_LORA = torch.load(canny_lora_path, map_location=DEVICE)
+                            logging.info("✅ Canny LoRA model loaded from local file")
+                        except Exception as e:
+                            logging.warning(f"⚠️ Could not load canny LoRA model: {e}")
+                            CANNY_LORA = None
+                    else:
+                        logging.warning(f"⚠️ Canny LoRA model file not found: {canny_lora_path}")
+                        CANNY_LORA = None
+                
+                else:  # base mode or any other value
+                    # Don't load any LoRA models in base mode
+                    POSE_LORA = None
+                    CANNY_LORA = None
+                    logging.info("📋 Base mode: No LoRA models loaded (memory efficient)")
+                
+                # Load the upsampling pipeline from local file (version 0.9.7)
+                upscaler_model_path = "models/upscaler/ltxv-spatial-upscaler-0.9.7.safetensors"
+                if os.path.exists(upscaler_model_path):
+                    try:
+                        PIPE_UPSAMPLE = LTXLatentUpsamplePipeline.from_single_file(
+                            upscaler_model_path,
+                            vae=MODEL.vae, 
+                            torch_dtype=torch.bfloat16
+                        ).to(DEVICE)
+                        logging.info("✅ Upsampling pipeline loaded from local file (v0.9.7)")
+                    except Exception as e:
+                        logging.warning(f"⚠️ Could not load upsampling pipeline from local file: {e}")
+                        PIPE_UPSAMPLE = None
+                else:
+                    logging.warning(f"⚠️ Upscaler model file not found: {upscaler_model_path}")
+                    PIPE_UPSAMPLE = None
+                
+                # Enable tiling for VAE
+                MODEL.vae.enable_tiling()
+                
+                logging.info(f"✅ LTX Video model loaded from local file on {DEVICE}")
+                logging.info(f"📋 Model configuration: {MODEL_NAME}")
+                
+                # Log what's available based on MODEL_NAME
+                if MODEL_NAME == "base":
+                    logging.info("🎯 Base mode: Only general video generation available")
+                elif MODEL_NAME == "pose":
+                    logging.info("🎭 Pose mode: Pose accordance + general video generation available")
+                elif MODEL_NAME == "canny":
+                    logging.info("🎨 Canny mode: Canny accordance + general video generation available")
+                elif MODEL_NAME == "all":
+                    logging.info("🌟 All modes: Pose, canny, and general video generation available")
+                
+                if POSE_LORA:
+                    logging.info("✅ Pose LoRA model loaded and ready")
+                if CANNY_LORA:
+                    logging.info("✅ Canny LoRA model loaded and ready")
+
     except Exception as e:
         logging.error(f"❌ Failed to load LTX model: {e}")
         MODEL = MockPipeline()

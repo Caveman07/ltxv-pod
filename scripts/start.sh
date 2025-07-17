@@ -57,6 +57,21 @@ else
     echo "🧪 MOCK_MODE is true, skipping model download."
 fi
 
+# Check for T5 encoder/tokenizer
+T5_DIR="models/t5-v1_1-large"
+if [ ! -d "$T5_DIR" ] || [ -z "$(ls -A $T5_DIR 2>/dev/null)" ]; then
+    echo "\U0001F4E5 T5 encoder/tokenizer not found. Downloading..."
+    if [ -f "scripts/download-models.sh" ]; then
+        chmod +x scripts/download-models.sh
+        ./scripts/download-models.sh
+    else
+        echo "\u274c Model download script not found!"
+        exit 1
+    fi
+else
+    echo "\u2705 T5 encoder/tokenizer already present."
+fi
+
 # Ensure uvicorn is installed
 if ! python -c "import uvicorn" 2>/dev/null; then
     echo "Uvicorn not found. Installing..."

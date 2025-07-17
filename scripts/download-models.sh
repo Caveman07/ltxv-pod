@@ -75,12 +75,22 @@ UPSCALER_MODEL_FILE="$UPSCALER_MODEL_DIR/ltxv-spatial-upscaler-0.9.7.safetensors
 UPSCALER_MODEL_URL="https://huggingface.co/Lightricks/ltxv-spatial-upscaler-0.9.7/resolve/main/vae/diffusion_pytorch_model.safetensors"
 
 if [ ! -f "$UPSCALER_MODEL_FILE" ]; then
-    echo "📥 Downloading upscaler model 0.9.7..."
+    echo "\U0001F4E5 Downloading upscaler model 0.9.7..."
     mkdir -p "$UPSCALER_MODEL_DIR"
     wget -O "$UPSCALER_MODEL_FILE" "$UPSCALER_MODEL_URL"
-    echo "✅ Upscaler model downloaded: $UPSCALER_MODEL_FILE"
+    echo "\u2705 Upscaler model downloaded: $UPSCALER_MODEL_FILE"
 else
-    echo "⏭️ Upscaler model already exists, skipping..."
+    echo "\u23ed\ufe0f Upscaler model already exists, skipping..."
+fi
+
+# Download T5 encoder and tokenizer (google/t5-v1_1-large)
+T5_DIR="$MODELS_DIR/t5-v1_1-large"
+if [ ! -d "$T5_DIR" ] || [ -z "$(ls -A $T5_DIR 2>/dev/null)" ]; then
+    echo "\U0001F4E5 Downloading T5 encoder and tokenizer (google/t5-v1_1-large)..."
+    python3 -c "from transformers import T5EncoderModel, T5Tokenizer; T5EncoderModel.from_pretrained('google/t5-v1_1-large', cache_dir='$T5_DIR'); T5Tokenizer.from_pretrained('google/t5-v1_1-large', cache_dir='$T5_DIR')"
+    echo "\u2705 T5 encoder and tokenizer downloaded: $T5_DIR"
+else
+    echo "\u23ed\ufe0f T5 encoder and tokenizer already exist, skipping..."
 fi
 
 echo ""
