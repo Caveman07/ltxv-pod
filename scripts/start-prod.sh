@@ -29,7 +29,8 @@ if [ "$MOCK_MODE" = "false" ]; then
     if [ ! -f "models/base/ltxv-13b-0.9.7-dev.safetensors" ] || \
        [ ! -f "models/pose/ltxv-097-ic-lora-pose-control-diffusers.safetensors" ] || \
        [ ! -f "models/canny/ltxv-097-ic-lora-canny-control-diffusers.safetensors" ] || \
-       [ ! -f "models/depth/ltxv-097-ic-lora-depth-control-diffusers.safetensors" ]; then
+       [ ! -f "models/depth/ltxv-097-ic-lora-depth-control-diffusers.safetensors" ] || \
+       [ ! -f "models/upscaler/ltxv-spatial-upscaler-0.9.7.safetensors" ]; then
         echo "🤖 One or more required model files not found. Downloading models..."
         if [ -f "scripts/download-models.sh" ]; then
             chmod +x scripts/download-models.sh

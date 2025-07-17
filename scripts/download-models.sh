@@ -69,6 +69,20 @@ else
     echo "⏭️ Depth model already exists, skipping..."
 fi
 
+# Download upscaler model 0.9.7
+UPSCALER_MODEL_DIR="$MODELS_DIR/upscaler"
+UPSCALER_MODEL_FILE="$UPSCALER_MODEL_DIR/ltxv-spatial-upscaler-0.9.7.safetensors"
+UPSCALER_MODEL_URL="https://huggingface.co/Lightricks/ltxv-spatial-upscaler-0.9.7/resolve/main/vae/diffusion_pytorch_model.safetensors"
+
+if [ ! -f "$UPSCALER_MODEL_FILE" ]; then
+    echo "📥 Downloading upscaler model 0.9.7..."
+    mkdir -p "$UPSCALER_MODEL_DIR"
+    wget -O "$UPSCALER_MODEL_FILE" "$UPSCALER_MODEL_URL"
+    echo "✅ Upscaler model downloaded: $UPSCALER_MODEL_FILE"
+else
+    echo "⏭️ Upscaler model already exists, skipping..."
+fi
+
 echo ""
 echo "🎉 All models downloaded successfully!"
 echo "📁 Models location: $MODELS_DIR"

@@ -292,160 +292,140 @@ class MockPipeline:
 
 # Model loading
 MODEL = None
+PIPE_UPSAMPLE = None
+POSE_LORA = None
+CANNY_LORA = None
 
 if MOCK_MODE:
     logging.info("Running in MOCK mode.")
     MODEL = MockPipeline()
 else:
-    from diffusers import StableDiffusionPipeline, DiffusionPipeline, AutoPipelineForText2Image
     import torch
-    from safetensors.torch import load_file as load_safetensors
+    from diffusers import LTXConditionPipeline, LTXLatentUpsamplePipeline
+    from diffusers.pipelines.ltx.pipeline_ltx_condition import LTXVideoCondition
+    from diffusers.utils import export_to_video, load_image, load_video
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
     try:
-        if MODEL_NAME == "base":
-            # Load base model directly
-            base_model_path = "models/base/ltxv-13b-0.9.7-dev.safetensors"
-            if not os.path.exists(base_model_path):
-                logging.error(f"Base model file not found: {base_model_path}")
-                MODEL = MockPipeline()
-            else:
-                logging.info(f"Loading base model from {base_model_path}")
-                try:
-                    # First, let's inspect what's in the safetensors file
-                    from safetensors.torch import load_file
-                    state_dict = load_file(base_model_path)
-                    logging.info(f"📊 Safetensors file contains {len(state_dict)} keys")
-                    logging.info(f"📋 Sample keys: {list(state_dict.keys())[:10]}")
-                    
-                    # Try loading with different approaches
-                    try:
-                        # Approach 1: Standard diffusers loading
-                        pipe = StableDiffusionPipeline.from_single_file(
-                            base_model_path,
-                            torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
-                            use_safetensors=True,
-                            load_safety_checker=False,
-                            local_files_only=True
-                        ).to(DEVICE)
-                        logging.info("✅ Loaded with standard diffusers approach")
-                    except Exception as e1:
-                        logging.warning(f"Standard loading failed: {e1}")
-                        try:
-                            # Approach 2: Try without safetensors flag
-                            pipe = StableDiffusionPipeline.from_single_file(
-                                base_model_path,
-                                torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
-                                load_safety_checker=False,
-                                local_files_only=True
-                            ).to(DEVICE)
-                            logging.info("✅ Loaded without safetensors flag")
-                        except Exception as e2:
-                            logging.error(f"Alternative loading failed: {e2}")
-                            # Approach 3: Try with minimal parameters
-                            pipe = StableDiffusionPipeline.from_single_file(
-                                base_model_path,
-                                torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32
-                            ).to(DEVICE)
-                            logging.info("✅ Loaded with minimal parameters")
-                        except Exception as e3:
-                            logging.error(f"Minimal loading failed: {e3}")
-                            # Approach 4: Try loading as a custom model from directory
-                            try:
-                                logging.info("🔄 Trying to load as custom model from directory...")
-                                # Create a temporary directory structure that diffusers expects
-                                import tempfile
-                                import shutil
-                                with tempfile.TemporaryDirectory() as temp_dir:
-                                    # Copy the safetensors file to the temp directory
-                                    temp_model_path = os.path.join(temp_dir, "model.safetensors")
-                                    shutil.copy2(base_model_path, temp_model_path)
-                                    
-                                    # Try loading from the directory
-                                    pipe = StableDiffusionPipeline.from_pretrained(
-                                        temp_dir,
-                                        torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
-                                        local_files_only=True
-                                    ).to(DEVICE)
-                                    logging.info("✅ Loaded as custom model from directory")
-                            except Exception as e4:
-                                logging.error(f"Custom model loading failed: {e4}")
-                                raise e4
-
-                    if DEVICE == "cuda":
-                        pipe.enable_model_cpu_offload()
-
-                    MODEL = pipe
-                    logging.info(f"✅ Base model loaded on {DEVICE}")
-                except Exception as e:
-                    logging.error(f"❌ Failed to load base model: {e}")
-                    # Try fallback with DiffusionPipeline
-                    try:
-                        logging.info("🔄 Trying fallback with DiffusionPipeline...")
-                        pipe = DiffusionPipeline.from_single_file(
-                            base_model_path,
-                            torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32
-                        ).to(DEVICE)
-                        MODEL = pipe
-                        logging.info(f"✅ Base model loaded with DiffusionPipeline on {DEVICE}")
-                    except Exception as e2:
-                        logging.error(f"❌ Fallback also failed: {e2}")
-                        # Try AutoPipeline as final fallback
-                        try:
-                            logging.info("🔄 Trying AutoPipelineForText2Image...")
-                            pipe = AutoPipelineForText2Image.from_single_file(
-                                base_model_path,
-                                torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32
-                            ).to(DEVICE)
-                            MODEL = pipe
-                            logging.info(f"✅ Base model loaded with AutoPipeline on {DEVICE}")
-                        except Exception as e3:
-                            logging.error(f"❌ AutoPipeline also failed: {e3}")
-                            MODEL = MockPipeline()
-                            logging.info("Using mock pipeline for base model")
+        logging.info(f"Loading LTX Video model: {MODEL_NAME} from local files...")
+        
+        # Load the main LTX pipeline from local safetensors file
+        base_model_path = "models/base/ltxv-13b-0.9.7-dev.safetensors"
+        if not os.path.exists(base_model_path):
+            logging.error(f"Base model file not found: {base_model_path}")
+            MODEL = MockPipeline()
         else:
-            # Load specialized model (pose, canny, depth) with LoRA
-            base_model_path = "models/base/ltxv-13b-0.9.7-dev.safetensors"
-            model_path = f"models/{MODEL_NAME}"
+            MODEL = LTXConditionPipeline.from_single_file(
+                base_model_path,
+                torch_dtype=torch.bfloat16
+            ).to(DEVICE)
             
-            if not os.path.exists(base_model_path):
-                logging.error(f"Base model file not found: {base_model_path}")
-                MODEL = MockPipeline()
-            elif not os.path.exists(model_path):
-                logging.error(f"Model directory not found: {model_path}")
-                MODEL = MockPipeline()
-            else:
-                safetensors_files = [f for f in os.listdir(model_path) if f.endswith('.safetensors')]
-                if not safetensors_files:
-                    logging.error(f"No .safetensors files found in {model_path}")
-                    MODEL = MockPipeline()
+            # Load LoRA models based on MODEL_NAME (only load what's needed)
+            if MODEL_NAME == "pose":
+                pose_lora_path = "models/pose/ltxv-097-ic-lora-pose-control-diffusers.safetensors"
+                if os.path.exists(pose_lora_path):
+                    try:
+                        POSE_LORA = torch.load(pose_lora_path, map_location=DEVICE)
+                        logging.info("✅ Pose LoRA model loaded from local file")
+                    except Exception as e:
+                        logging.warning(f"⚠️ Could not load pose LoRA model: {e}")
+                        POSE_LORA = None
                 else:
-                    logging.info(f"Loading base model from {base_model_path}")
-                    pipe = StableDiffusionPipeline.from_single_file(
-                        base_model_path,
-                        torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
-                        use_safetensors=True,
-                        load_safety_checker=False,
-                        local_files_only=True
+                    logging.warning(f"⚠️ Pose LoRA model file not found: {pose_lora_path}")
+                    POSE_LORA = None
+                CANNY_LORA = None  # Don't load canny model in pose mode
+            
+            elif MODEL_NAME == "canny":
+                canny_lora_path = "models/canny/ltxv-097-ic-lora-canny-control-diffusers.safetensors"
+                if os.path.exists(canny_lora_path):
+                    try:
+                        CANNY_LORA = torch.load(canny_lora_path, map_location=DEVICE)
+                        logging.info("✅ Canny LoRA model loaded from local file")
+                    except Exception as e:
+                        logging.warning(f"⚠️ Could not load canny LoRA model: {e}")
+                        CANNY_LORA = None
+                else:
+                    logging.warning(f"⚠️ Canny LoRA model file not found: {canny_lora_path}")
+                    CANNY_LORA = None
+                POSE_LORA = None  # Don't load pose model in canny mode
+            
+            elif MODEL_NAME == "all":
+                # Load both LoRA models for "all" mode
+                pose_lora_path = "models/pose/ltxv-097-ic-lora-pose-control-diffusers.safetensors"
+                if os.path.exists(pose_lora_path):
+                    try:
+                        POSE_LORA = torch.load(pose_lora_path, map_location=DEVICE)
+                        logging.info("✅ Pose LoRA model loaded from local file")
+                    except Exception as e:
+                        logging.warning(f"⚠️ Could not load pose LoRA model: {e}")
+                        POSE_LORA = None
+                else:
+                    logging.warning(f"⚠️ Pose LoRA model file not found: {pose_lora_path}")
+                    POSE_LORA = None
+                
+                canny_lora_path = "models/canny/ltxv-097-ic-lora-canny-control-diffusers.safetensors"
+                if os.path.exists(canny_lora_path):
+                    try:
+                        CANNY_LORA = torch.load(canny_lora_path, map_location=DEVICE)
+                        logging.info("✅ Canny LoRA model loaded from local file")
+                    except Exception as e:
+                        logging.warning(f"⚠️ Could not load canny LoRA model: {e}")
+                        CANNY_LORA = None
+                else:
+                    logging.warning(f"⚠️ Canny LoRA model file not found: {canny_lora_path}")
+                    CANNY_LORA = None
+            
+            else:  # base mode or any other value
+                # Don't load any LoRA models in base mode
+                POSE_LORA = None
+                CANNY_LORA = None
+                logging.info("📋 Base mode: No LoRA models loaded (memory efficient)")
+            
+            # Load the upsampling pipeline from local file (version 0.9.7)
+            upscaler_model_path = "models/upscaler/ltxv-spatial-upscaler-0.9.7.safetensors"
+            if os.path.exists(upscaler_model_path):
+                try:
+                    PIPE_UPSAMPLE = LTXLatentUpsamplePipeline.from_single_file(
+                        upscaler_model_path,
+                        vae=MODEL.vae, 
+                        torch_dtype=torch.bfloat16
                     ).to(DEVICE)
-
-                    # Load the LoRA weights
-                    for safetensor_file in safetensors_files:
-                        if "diffusers" in safetensor_file.lower():
-                            lora_path = os.path.join(model_path, safetensor_file)
-                            pipe.load_lora_weights(lora_path)
-                            logging.info(f"Loaded LoRA weights from {lora_path}")
-                            break
-
-                    if DEVICE == "cuda":
-                        pipe.enable_model_cpu_offload()
-
-                    MODEL = pipe
-                    logging.info(f"✅ Model '{MODEL_NAME}' loaded on {DEVICE}")
+                    logging.info("✅ Upsampling pipeline loaded from local file (v0.9.7)")
+                except Exception as e:
+                    logging.warning(f"⚠️ Could not load upsampling pipeline from local file: {e}")
+                    PIPE_UPSAMPLE = None
+            else:
+                logging.warning(f"⚠️ Upscaler model file not found: {upscaler_model_path}")
+                PIPE_UPSAMPLE = None
+            
+            # Enable tiling for VAE
+            MODEL.vae.enable_tiling()
+            
+            logging.info(f"✅ LTX Video model loaded from local file on {DEVICE}")
+            logging.info(f"📋 Model configuration: {MODEL_NAME}")
+            
+            # Log what's available based on MODEL_NAME
+            if MODEL_NAME == "base":
+                logging.info("🎯 Base mode: Only general video generation available")
+            elif MODEL_NAME == "pose":
+                logging.info("🎭 Pose mode: Pose accordance + general video generation available")
+            elif MODEL_NAME == "canny":
+                logging.info("🎨 Canny mode: Canny accordance + general video generation available")
+            elif MODEL_NAME == "all":
+                logging.info("🌟 All modes: Pose, canny, and general video generation available")
+            
+            if POSE_LORA:
+                logging.info("✅ Pose LoRA model loaded and ready")
+            if CANNY_LORA:
+                logging.info("✅ Canny LoRA model loaded and ready")
+        
     except Exception as e:
-        logging.error(f"❌ Failed to load model '{MODEL_NAME}': {e}")
+        logging.error(f"❌ Failed to load LTX model: {e}")
         MODEL = MockPipeline()
-        logging.info(f"Using mock pipeline for '{MODEL_NAME}'")
+        PIPE_UPSAMPLE = None
+        POSE_LORA = None
+        CANNY_LORA = None
+        logging.info("Using mock pipeline")
 
 @app.post("/generate")
 async def generate(
@@ -475,18 +455,21 @@ async def generate(
     if not control_image and not control_video:
         raise HTTPException(status_code=400, detail="Either control_image or control_video must be provided")
 
+    # Validate accordance mode availability based on MODEL_NAME
+    if control_type == ControlType.POSE:
+        if MODEL_NAME != "pose" and MODEL_NAME != "all":
+            raise HTTPException(status_code=400, detail=f"Pose accordance mode not available - MODEL_NAME is '{MODEL_NAME}', use 'pose' or 'all'")
+        if POSE_LORA is None:
+            raise HTTPException(status_code=400, detail="Pose accordance mode not available - pose LoRA model not loaded")
+    if control_type == ControlType.CANNY:
+        if MODEL_NAME != "canny" and MODEL_NAME != "all":
+            raise HTTPException(status_code=400, detail=f"Canny accordance mode not available - MODEL_NAME is '{MODEL_NAME}', use 'canny' or 'all'")
+        if CANNY_LORA is None:
+            raise HTTPException(status_code=400, detail="Canny accordance mode not available - canny LoRA model not loaded")
+
     # Use the loaded model
     model = MODEL
-
-    # Validate control type matches model
-    model_control_compat = {
-        'base': ['general'],
-        'pose': ['pose', 'general'],
-        'canny': ['canny', 'general'],
-        'depth': ['depth', 'general']
-    }
-    if control_type not in model_control_compat.get(MODEL_NAME, []):
-        raise HTTPException(status_code=400, detail=f"Control type '{control_type}' is not compatible with model '{MODEL_NAME}'")
+    pipe_upsample = PIPE_UPSAMPLE
 
     # Determine input type
     input_type = InputType.VIDEO if control_video else InputType.IMAGE
@@ -512,73 +495,149 @@ async def generate(
     STATE["estimated_completion"] = estimated_completion.isoformat()
 
     try:
-        # Prepare generation parameters
+        # Helper function for VAE resolution rounding (exactly as in documentation)
+        def round_to_nearest_resolution_acceptable_by_vae(height, width):
+            height = height - (height % model.vae_spatial_compression_ratio)
+            width = width - (width % model.vae_spatial_compression_ratio)
+            return height, width
+
+        # Calculate dimensions based on aspect ratio
+        aspect_ratios = {
+            "16:9": (832, 480),
+            "9:16": (480, 832),
+            "1:1": (640, 640),
+            "4:3": (768, 576),
+            "3:4": (576, 768)
+        }
+        expected_width, expected_height = aspect_ratios.get(aspect_ratio, (832, 480))
+        
+        # Calculate number of frames based on duration
+        duration_frames = {
+            "3": 96,
+            "5": 160,
+            "10": 320,
+            "15": 480
+        }
+        num_frames = duration_frames.get(duration, 96)
+        
+        # Downscale factor for initial generation (exactly as in documentation)
+        downscale_factor = 2 / 3
+        downscaled_height, downscaled_width = int(expected_height * downscale_factor), int(expected_width * downscale_factor)
+        downscaled_height, downscaled_width = round_to_nearest_resolution_acceptable_by_vae(downscaled_height, downscaled_width)
+
+        # Prepare generation parameters (exactly as in documentation)
         generation_params = {
             "prompt": prompt,
+            "negative_prompt": "worst quality, inconsistent motion, blurry, jittery, distorted",
+            "width": downscaled_width,
+            "height": downscaled_height,
+            "num_frames": num_frames,
             "num_inference_steps": num_inference_steps,
-            "guidance_scale": guidance_scale,
+            "output_type": "latent",
         }
         
         # Add optional parameters if provided
         if seed is not None:
-            import torch
             generator = torch.Generator(device=DEVICE if not MOCK_MODE else "cpu").manual_seed(seed)
             generation_params["generator"] = generator
 
         # Process input based on type
         if control_video:
-            # Handle video input
+            # Handle video input (exactly as in documentation)
             temp_video = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
             temp_video.write(await control_video.read())
             temp_video.close()
             
-            # Extract frames from video
-            frames = extract_frames_from_video(temp_video.name)
+            # Load video using diffusers utility (exactly as in documentation)
+            video = load_video(temp_video.name)[:21]  # Use only first 21 frames
+            condition = LTXVideoCondition(video=video, frame_index=0)
             
-            # Preprocess frames based on control type
-            processed_frames = preprocess_frames_for_control(frames, control_type)
-            
-            # Convert PIL images to numpy arrays for model
-            reference_video = [np.array(frame) for frame in processed_frames]
-            
-            # Use reference video for generation
-            generation_params["reference_video"] = reference_video
-            
-            logging.info(f"🎬 Generating video with reference video ({len(reference_video)} frames) for control_type={control_type} using model={MODEL_NAME}")
+            logging.info(f"🎬 Generating video with reference video ({len(video)} frames) using LTX model")
             
             # Clean up temp file
             os.unlink(temp_video.name)
             
         else:
-            # Handle single image input
+            # Handle single image input (exactly as in documentation)
             temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
             temp_file.write(await control_image.read())
             temp_file.close()
-            control_img = Image.open(temp_file.name).convert("RGB")
-
-            # Preprocess image based on control type
-            processed_img = preprocess_image_for_control(control_img, control_type)
             
-            # Log preprocessing info
-            if control_type == ControlType.CANNY:
-                logging.info(f"🔍 Applied Canny edge detection for control")
-            elif control_type == ControlType.POSE:
-                logging.info(f"🦴 Using pose control (expecting pose/skeleton image)")
-
-            # Use single image for generation
-            generation_params["image"] = processed_img
+            # Load image using diffusers utility (exactly as in documentation)
+            image = load_image(temp_file.name)
+            video = load_video(export_to_video([image]))  # compress image using video compression
+            condition = LTXVideoCondition(video=video, frame_index=0)
             
-            logging.info(f"🎬 Generating video with single image for control_type={control_type} using model={MODEL_NAME}")
+            logging.info(f"🎬 Generating video with single image using LTX model")
             
             # Clean up temp file
             os.unlink(temp_file.name)
         
+        # Add condition to generation parameters
+        generation_params["conditions"] = [condition]
+        
+        # Apply LoRA models for accordance mode
+        if control_type == ControlType.POSE and POSE_LORA is not None:
+            logging.info("🎭 Applying pose LoRA for accordance mode...")
+            # Apply pose LoRA weights to the model
+            with torch.no_grad():
+                for name, param in MODEL.named_parameters():
+                    if name in POSE_LORA:
+                        param.data = POSE_LORA[name].to(param.device, param.dtype)
+        elif control_type == ControlType.CANNY and CANNY_LORA is not None:
+            logging.info("🎨 Applying canny LoRA for accordance mode...")
+            # Apply canny LoRA weights to the model
+            with torch.no_grad():
+                for name, param in MODEL.named_parameters():
+                    if name in CANNY_LORA:
+                        param.data = CANNY_LORA[name].to(param.device, param.dtype)
+        
         # Log generation settings and time estimate
-        logging.info(f"🎬 Generating video with settings: aspect_ratio={aspect_ratio}, duration={duration}, intensity={intensity}, control_type={control_type}, input_type={input_type}, model_name={MODEL_NAME}, seed={seed}, audio_sfx={audio_sfx}")
+        logging.info(f"🎬 Generating video with settings: aspect_ratio={aspect_ratio}, duration={duration}, intensity={intensity}, num_frames={num_frames}, control_type={control_type}")
         logging.info(f"⏱️ Estimated generation time: {time_estimate['estimated_time']} (confidence: {time_estimate['confidence']})")
         
-        # Generate video using selected model and parameters, returning path to first video
-        output_path = model(**generation_params).videos[0]
+        # Part 1. Generate video at smaller resolution (exactly as in documentation)
+        logging.info("🔄 Part 1: Generating video at smaller resolution...")
+        latents = model(**generation_params).frames
+        
+        # Part 2. Upscale generated video using latent upsampler (exactly as in documentation)
+        if pipe_upsample:
+            logging.info("🔄 Part 2: Upscaling video...")
+            upscaled_height, upscaled_width = downscaled_height * 2, downscaled_width * 2
+            upscaled_latents = pipe_upsample(
+                latents=latents,
+                output_type="latent"
+            ).frames
+            
+            # Part 3. Denoise the upscaled video with few steps to improve texture (exactly as in documentation)
+            logging.info("🔄 Part 3: Denoising upscaled video...")
+            generation_params.update({
+                "width": upscaled_width,
+                "height": upscaled_height,
+                "denoise_strength": 0.4,  # Effectively, 4 inference steps out of 10
+                "num_inference_steps": 10,
+                "latents": upscaled_latents,
+                "decode_timestep": 0.05,
+                "image_cond_noise_scale": 0.025,
+                "output_type": "pil",
+            })
+            video_frames = model(**generation_params).frames[0]
+        else:
+            # If no upsampling pipeline, just decode the latents
+            logging.info("🔄 Decoding latents to video frames...")
+            generation_params.update({
+                "output_type": "pil",
+            })
+            video_frames = model(**generation_params).frames[0]
+        
+        # Part 4. Downscale the video to the expected resolution (exactly as in documentation)
+        logging.info("🔄 Part 4: Resizing video to expected resolution...")
+        video_frames = [frame.resize((expected_width, expected_height)) for frame in video_frames]
+        
+        # Export video (exactly as in documentation)
+        output_path = f"/tmp/{task_id}_{uuid.uuid4().hex}.mp4"
+        export_to_video(video_frames, output_path, fps=24)
+        
         actual_duration = round(time.time() - start_time, 2)
 
         # Загрузка в R2 только если включено, иначе сохраняем локально
@@ -615,6 +674,7 @@ async def generate(
             "duration_sec": actual_duration,
             "mock": MOCK_MODE,
             "task_id": task_id,
+            "accordance_mode": control_type,
             "time_estimation": {
                 "estimated_seconds": time_estimate["estimated_seconds"],
                 "estimated_time": time_estimate["estimated_time"],
@@ -645,7 +705,7 @@ async def generate(
             except Exception as e:
                 logging.warning(f"⚠️ Webhook failed: {e}")
 
-        logging.info(f"✅ Generation completed in {actual_duration}s (estimated: {time_estimate['estimated_time']}) [model={MODEL_NAME} control_type={control_type} input_type={input_type} task_id={task_id}]")
+        logging.info(f"✅ Generation completed in {actual_duration}s (estimated: {time_estimate['estimated_time']}) [model={MODEL_NAME} accordance_mode={control_type} input_type={input_type} task_id={task_id}]")
         return result
 
     except Exception as e:
@@ -664,7 +724,12 @@ async def reset_state():
 def get_status():
     return {
         "status": "busy" if STATE["busy"] else "idle",
-        "models": [MODEL_NAME], # Show available models
+        "models": ["ltx"], # Show available models
+        "model_name": MODEL_NAME,
+        "accordance_modes": {
+            "pose": (MODEL_NAME == "pose" or MODEL_NAME == "all") and POSE_LORA is not None,
+            "canny": (MODEL_NAME == "canny" or MODEL_NAME == "all") and CANNY_LORA is not None
+        },
         "last_task_at": STATE["last_task_at"],
         "current_task_id": STATE["current_task_id"],
         "estimated_completion": STATE["estimated_completion"]
@@ -672,7 +737,15 @@ def get_status():
 
 @app.get("/health")
 def health_check():
-    return {"status": "ready (mock mode)" if MOCK_MODE else "ready (production mode)", "models": [MODEL_NAME]}
+    return {
+        "status": "ready (mock mode)" if MOCK_MODE else "ready (production mode)", 
+        "models": ["ltx"],
+        "model_name": MODEL_NAME,
+        "accordance_modes": {
+            "pose": (MODEL_NAME == "pose" or MODEL_NAME == "all") and POSE_LORA is not None,
+            "canny": (MODEL_NAME == "canny" or MODEL_NAME == "all") and CANNY_LORA is not None
+        }
+    }
 
 @app.get("/settings")
 def get_available_settings():
@@ -694,12 +767,22 @@ def get_available_settings():
             "audio_sfx": False
         },
         "model_compatibility": {
-            MODEL_NAME: model_control_compat.get(MODEL_NAME, [])
+            "ltx": ["general"] + (["pose"] if MODEL_NAME == "pose" or MODEL_NAME == "all" else []) + (["canny"] if MODEL_NAME == "canny" or MODEL_NAME == "all" else [])
         },
         "input_compatibility": {
-            MODEL_NAME: ["image", "video"]
+            "ltx": ["image", "video"]
         },
-        "loaded_model": MODEL_NAME
+        "loaded_model": "ltx",
+        "model_name": MODEL_NAME,
+        "available_control_types": {
+            "general": True,  # Always available
+            "pose": MODEL_NAME == "pose" or MODEL_NAME == "all",
+            "canny": MODEL_NAME == "canny" or MODEL_NAME == "all"
+        },
+        "accordance_modes": {
+            "pose": (MODEL_NAME == "pose" or MODEL_NAME == "all") and POSE_LORA is not None,
+            "canny": (MODEL_NAME == "canny" or MODEL_NAME == "all") and CANNY_LORA is not None
+        }
     }
 
 @app.post("/estimate")
@@ -715,16 +798,6 @@ async def estimate_time(
     """Estimate generation time without starting the job"""
     if token != API_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid token")
-
-    # Validate control type matches model
-    model_control_compat = {
-        'base': ['general'],
-        'pose': ['pose', 'general'],
-        'canny': ['canny', 'general'],
-        'depth': ['depth', 'general']
-    }
-    if control_type not in model_control_compat.get(MODEL_NAME, []):
-        raise HTTPException(status_code=400, detail=f"Control type '{control_type}' is not compatible with model '{MODEL_NAME}'")
 
     time_estimate = estimate_generation_time(
         duration=duration,
