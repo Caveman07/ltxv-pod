@@ -320,8 +320,19 @@ else:
             CANNY_LORA = None
         else:
             logging.info(f"Loading T5 encoder and tokenizer from {t5_dir} ...")
-            text_encoder = T5EncoderModel.from_pretrained(t5_dir)
-            tokenizer = T5Tokenizer.from_pretrained(t5_dir)
+            try:
+                text_encoder = T5EncoderModel.from_pretrained(t5_dir)
+                logging.info("✅ T5 encoder loaded successfully")
+            except Exception as e:
+                logging.error(f"❌ Failed to load T5 encoder: {e}")
+                raise e
+            
+            try:
+                tokenizer = T5Tokenizer.from_pretrained(t5_dir)
+                logging.info("✅ T5 tokenizer loaded successfully")
+            except Exception as e:
+                logging.error(f"❌ Failed to load T5 tokenizer: {e}")
+                raise e
 
             # Load the main LTX pipeline from local safetensors file
             base_model_path = "models/base/ltxv-13b-0.9.7-dev.safetensors"
@@ -329,12 +340,18 @@ else:
                 logging.error(f"Base model file not found: {base_model_path}")
                 MODEL = MockPipeline()
             else:
-                MODEL = LTXConditionPipeline.from_single_file(
-                    base_model_path,
-                    text_encoder=text_encoder,
-                    tokenizer=tokenizer,
-                    torch_dtype=torch.bfloat16
-                ).to(DEVICE)
+                logging.info(f"Creating LTX pipeline with base model: {base_model_path}")
+                try:
+                    MODEL = LTXConditionPipeline.from_single_file(
+                        base_model_path,
+                        text_encoder=text_encoder,
+                        tokenizer=tokenizer,
+                        torch_dtype=torch.bfloat16
+                    ).to(DEVICE)
+                    logging.info("✅ LTX pipeline created successfully")
+                except Exception as e:
+                    logging.error(f"❌ Failed to create LTX pipeline: {e}")
+                    raise e
                 
                 # Load LoRA models based on MODEL_NAME (only load what's needed)
                 if MODEL_NAME == "pose":
