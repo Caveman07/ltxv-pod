@@ -66,8 +66,8 @@ echo "   HF_DATASETS_CACHE: $HF_DATASETS_CACHE"
 
 echo "🔧 Starting LTX Video Pod with official diffusers approach..."
 echo "   Models will be automatically downloaded and cached on first run"
-echo "   Base model: Lightricks/LTX-Video-0.9.8-dev"
-echo "   Upscaler: Lightricks/ltxv-spatial-upscaler-0.9.8"
+echo "   Base model: Lightricks/LTX-Video-0.9.7"
+echo "   Upscaler: Lightricks/ltxv-spatial-upscaler-0.9.7"
 
 # Start the application
 python3 app.py 

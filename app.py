@@ -37,13 +37,13 @@ def load_models():
         
         # Load base pipeline - this will download and cache the model automatically
         pipe = LTXConditionPipeline.from_pretrained(
-            "Lightricks/LTX-Video-0.9.8-dev", 
+            "Lightricks/LTX-Video-0.9.7", 
             torch_dtype=torch.bfloat16
         )
         
         # Load upscaler pipeline - this will download and cache the model automatically
         pipe_upsample = LTXLatentUpsamplePipeline.from_pretrained(
-            "Lightricks/ltxv-spatial-upscaler-0.9.8", 
+            "Lightricks/ltxv-spatial-upscaler-0.9.7", 
             vae=pipe.vae, 
             torch_dtype=torch.bfloat16
         )
@@ -202,12 +202,12 @@ def list_models():
     return jsonify({
         "models": {
             "ltx_video": {
-                "name": "Lightricks/LTX-Video-0.9.8-dev",
+                "name": "Lightricks/LTX-Video-0.9.7",
                 "loaded": pipe is not None,
                 "type": "base_pipeline"
             },
             "ltx_upscaler": {
-                "name": "Lightricks/ltxv-spatial-upscaler-0.9.8",
+                "name": "Lightricks/ltxv-spatial-upscaler-0.9.7",
                 "loaded": pipe_upsample is not None,
                 "type": "upscaler_pipeline"
             }
