@@ -55,6 +55,7 @@ export PYTHONPATH="${PYTHONPATH}:$(pwd)"
 export HF_HOME="${HF_HOME:-$(pwd)/.cache/huggingface}"
 export TRANSFORMERS_CACHE="${TRANSFORMERS_CACHE:-$(pwd)/.cache/huggingface/transformers}"
 export HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-$(pwd)/.cache/huggingface/datasets}"
+export PORT="${PORT:-8000}"  # Set default port to 8000 for RunPod
 
 # Create cache directories
 mkdir -p .cache/huggingface/transformers
@@ -69,6 +70,7 @@ echo "🔧 Starting LTX Video Pod with official diffusers approach..."
 echo "   Models will be automatically downloaded and cached on first run"
 echo "   Base model: Lightricks/LTX-Video-0.9.7-dev"
 echo "   Upscaler: Lightricks/ltxv-spatial-upscaler-0.9.7"
+echo "   Port: $PORT"
 
-# Start the application
-python3 app.py 
+# Start the application with gunicorn for production
+gunicorn --bind 0.0.0.0:$PORT --workers 1 --timeout 300 --keep-alive 2 app:app 
