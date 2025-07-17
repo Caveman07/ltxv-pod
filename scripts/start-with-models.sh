@@ -3,77 +3,61 @@
 # LTX Video Pod Startup Script with Model Management (RunPod compatible)
 set -e
 
-echo "🚀 Starting LTX Video Pod with Model Management..."
+echo "🚀 Starting LTX Video Pod (with models script)..."
 
-# Check if .env file exists
-if [ ! -f .env ]; then
-    echo "📝 Creating .env file from template..."
-    cp env.example .env
-    echo "⚠️  Please edit .env file with your configuration before starting!"
+# Check if Python is available
+if ! command -v python3 &> /dev/null; then
+    echo "❌ Python 3 is not installed or not in PATH"
     exit 1
 fi
 
-# Create necessary directories
-echo "📁 Creating directories..."
-mkdir -p videos
-mkdir -p logs
-mkdir -p models
-
-# Set proper permissions
-echo "🔐 Setting permissions..."
-chmod 755 videos
-chmod 755 logs
-chmod 755 models
-
-# Load environment variables
-echo "⚙️  Loading environment variables..."
-source .env
-
-# Check if models exist
-if [ ! -f "models/base/ltxv-13b-0.9.7-dev.safetensors" ] || \
-   [ ! -f "models/pose/ltxv-097-ic-lora-pose-control-diffusers.safetensors" ] || \
-   [ ! -f "models/canny/ltxv-097-ic-lora-canny-control-diffusers.safetensors" ] || \
-   [ ! -f "models/depth/ltxv-097-ic-lora-depth-control-diffusers.safetensors" ] || \
-   [ ! -f "models/upscaler/ltxv-spatial-upscaler-0.9.7.safetensors" ]; then
-    echo "🤖 One or more required model files not found. Downloading models..."
-    if [ -f "scripts/download-models.sh" ]; then
-        chmod +x scripts/download-models.sh
-        ./scripts/download-models.sh
-    else
-        echo "❌ Model download script not found!"
-        exit 1
-    fi
-else
-    echo "✅ All required model files already exist"
+# Check if pip is available
+if ! command -v pip3 &> /dev/null; then
+    echo "❌ pip3 is not installed or not in PATH"
+    exit 1
 fi
 
-# Check if running in production mode
-if [ "$MOCK_MODE" = "false" ]; then
-    echo "🏭 Running in PRODUCTION mode"
-    echo "⚠️  Make sure you have proper API_TOKEN set!"
-else
-    echo "🎭 Running in MOCK mode"
+# Check if we're in the right directory
+if [ ! -f "app.py" ]; then
+    echo "❌ app.py not found. Please run this script from the ltxv-pod directory"
+    exit 1
 fi
 
-# Check R2 configuration
-if [ "$R2_ENABLED" = "true" ]; then
-    echo "☁️  R2 storage enabled"
-    if [ -z "$R2_ACCESS_KEY" ] || [ -z "$R2_SECRET_KEY" ] || [ -z "$R2_ENDPOINT" ] || [ -z "$R2_BUCKET" ]; then
-        echo "❌ R2 configuration incomplete! Please check your .env file."
-        exit 1
-    fi
+# Install dependencies if requirements.txt exists
+if [ -f "requirements.txt" ]; then
+    echo "📦 Installing Python dependencies..."
+    pip3 install -r requirements.txt
 else
-    echo "📁 Local storage enabled"
+    echo "⚠️ requirements.txt not found, skipping dependency installation"
 fi
 
-# Start the FastAPI app directly
+# Check for GPU availability
+if command -v nvidia-smi &> /dev/null; then
+    echo "✅ NVIDIA GPU detected"
+    nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits
+else
+    echo "⚠️ No NVIDIA GPU detected, will use CPU (this will be very slow)"
+fi
 
-echo "🎬 Starting LTX Video Pod server..."
-uvicorn app:app --host 0.0.0.0 --port 8000
+# Set environment variables
+export PYTHONPATH="${PYTHONPATH}:$(pwd)"
+export HF_HOME="${HF_HOME:-$(pwd)/.cache/huggingface}"
+export TRANSFORMERS_CACHE="${TRANSFORMERS_CACHE:-$(pwd)/.cache/huggingface/transformers}"
+export HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-$(pwd)/.cache/huggingface/datasets}"
 
-echo ""
-echo "🎉 LTX Video Pod is ready!"
-echo "📖 API Documentation: http://localhost:8000/docs"
-echo "🎥 Videos will be stored in: ./videos/"
-echo "📝 Logs will be stored in: ./logs/"
-echo "🤖 Models are mounted from: ./models/" 
+# Create cache directories
+mkdir -p .cache/huggingface/transformers
+mkdir -p .cache/huggingface/datasets
+
+echo "📁 Cache directories created:"
+echo "   HF_HOME: $HF_HOME"
+echo "   TRANSFORMERS_CACHE: $TRANSFORMERS_CACHE"
+echo "   HF_DATASETS_CACHE: $HF_DATASETS_CACHE"
+
+echo "🔧 Starting LTX Video Pod with official diffusers approach..."
+echo "   Models will be automatically downloaded and cached on first run"
+echo "   Base model: Lightricks/LTX-Video-0.9.8-dev"
+echo "   Upscaler: Lightricks/ltxv-spatial-upscaler-0.9.8"
+
+# Start the application
+python3 app.py 

@@ -4,87 +4,61 @@
 # Assumes environment variables are set in RunPod UI
 set -e
 
-echo "🚀 Starting LTX Video Pod (Production Mode)..."
+echo "🚀 Starting LTX Video Pod (production mode)..."
 
-# Create necessary directories
-echo "📁 Creating directories..."
-mkdir -p videos
-mkdir -p logs
-mkdir -p models
-mkdir -p models/base
+# Check if Python is available
+if ! command -v python3 &> /dev/null; then
+    echo "❌ Python 3 is not installed or not in PATH"
+    exit 1
+fi
 
-# Set proper permissions
-echo "🔐 Setting permissions..."
-chmod 755 videos
-chmod 755 logs
-chmod 755 models
-chmod 755 models/base
+# Check if pip is available
+if ! command -v pip3 &> /dev/null; then
+    echo "❌ pip3 is not installed or not in PATH"
+    exit 1
+fi
 
-# Ensure log file exists in a writable location
-touch app.log
-chmod 666 app.log
+# Check if we're in the right directory
+if [ ! -f "app.py" ]; then
+    echo "❌ app.py not found. Please run this script from the ltxv-pod directory"
+    exit 1
+fi
 
-# Download models only if not in mock mode
-if [ "$MOCK_MODE" = "false" ]; then
-    if [ ! -f "models/base/ltxv-13b-0.9.7-dev.safetensors" ] || \
-       [ ! -f "models/pose/ltxv-097-ic-lora-pose-control-diffusers.safetensors" ] || \
-       [ ! -f "models/canny/ltxv-097-ic-lora-canny-control-diffusers.safetensors" ] || \
-       [ ! -f "models/depth/ltxv-097-ic-lora-depth-control-diffusers.safetensors" ] || \
-       [ ! -f "models/upscaler/ltxv-spatial-upscaler-0.9.7.safetensors" ]; then
-        echo "🤖 One or more required model files not found. Downloading models..."
-        if [ -f "scripts/download-models.sh" ]; then
-            chmod +x scripts/download-models.sh
-            ./scripts/download-models.sh
-        else
-            echo "❌ Model download script not found!"
-            exit 1
-        fi
-    else
-        echo "✅ All required model files already exist"
-    fi
+# Install dependencies if requirements.txt exists
+if [ -f "requirements.txt" ]; then
+    echo "📦 Installing Python dependencies..."
+    pip3 install -r requirements.txt
 else
-    echo "🧪 MOCK_MODE is true, skipping model download."
+    echo "⚠️ requirements.txt not found, skipping dependency installation"
 fi
 
-# Check for T5 encoder/tokenizer
-T5_DIR="models/t5-v1_1-large"
-if [ ! -d "$T5_DIR" ] || [ -z "$(ls -A $T5_DIR 2>/dev/null)" ]; then
-    echo "\U0001F4E5 T5 encoder/tokenizer not found. Downloading..."
-    if [ -f "scripts/download-models.sh" ]; then
-        chmod +x scripts/download-models.sh
-        ./scripts/download-models.sh
-    else
-        echo "\u274c Model download script not found!"
-        exit 1
-    fi
+# Check for GPU availability
+if command -v nvidia-smi &> /dev/null; then
+    echo "✅ NVIDIA GPU detected"
+    nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits
 else
-    echo "\u2705 T5 encoder/tokenizer already present."
+    echo "⚠️ No NVIDIA GPU detected, will use CPU (this will be very slow)"
 fi
 
-# Check if running in production mode
-if [ "$MOCK_MODE" = "false" ]; then
-    echo "🏭 Running in PRODUCTION mode"
-    echo "⚠️  Make sure you have proper API_TOKEN set!"
-else
-    echo "🎭 Running in MOCK mode"
-fi
+# Set environment variables
+export PYTHONPATH="${PYTHONPATH}:$(pwd)"
+export HF_HOME="${HF_HOME:-$(pwd)/.cache/huggingface}"
+export TRANSFORMERS_CACHE="${TRANSFORMERS_CACHE:-$(pwd)/.cache/huggingface/transformers}"
+export HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-$(pwd)/.cache/huggingface/datasets}"
 
-# Check R2 configuration
-if [ "$R2_ENABLED" = "true" ]; then
-    echo "☁️  R2 storage enabled"
-    if [ -z "$R2_ACCESS_KEY" ] || [ -z "$R2_SECRET_KEY" ] || [ -z "$R2_ENDPOINT" ] || [ -z "$R2_BUCKET" ]; then
-        echo "❌ R2 configuration incomplete! Please check your RunPod environment variables."
-        exit 1
-    fi
-else
-    echo "📁 Local storage enabled"
-fi
+# Create cache directories
+mkdir -p .cache/huggingface/transformers
+mkdir -p .cache/huggingface/datasets
 
-# Ensure uvicorn is installed
-if ! python -c "import uvicorn" 2>/dev/null; then
-    echo "Uvicorn not found. Installing..."
-    pip install uvicorn
-fi
+echo "📁 Cache directories created:"
+echo "   HF_HOME: $HF_HOME"
+echo "   TRANSFORMERS_CACHE: $TRANSFORMERS_CACHE"
+echo "   HF_DATASETS_CACHE: $HF_DATASETS_CACHE"
 
-echo "🎬 Starting LTX Video Pod server..."
-python -m uvicorn app:app --host 0.0.0.0 --port 8000 
+echo "🔧 Starting LTX Video Pod with official diffusers approach..."
+echo "   Models will be automatically downloaded and cached on first run"
+echo "   Base model: Lightricks/LTX-Video-0.9.8-dev"
+echo "   Upscaler: Lightricks/ltxv-spatial-upscaler-0.9.8"
+
+# Start the application
+python3 app.py 
