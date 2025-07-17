@@ -37,7 +37,7 @@ def load_models():
         
         # Load base pipeline - this will download and cache the model automatically
         pipe = LTXConditionPipeline.from_pretrained(
-            "Lightricks/LTX-Video-0.9.7", 
+            "Lightricks/LTX-Video-0.9.7-dev", 
             torch_dtype=torch.bfloat16
         )
         
@@ -202,7 +202,7 @@ def list_models():
     return jsonify({
         "models": {
             "ltx_video": {
-                "name": "Lightricks/LTX-Video-0.9.7",
+                "name": "Lightricks/LTX-Video-0.9.7-dev",
                 "loaded": pipe is not None,
                 "type": "base_pipeline"
             },
