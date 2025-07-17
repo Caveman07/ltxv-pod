@@ -21,18 +21,6 @@ app = Flask(__name__)
 pipe = None
 pipe_upsample = None
 
-# Load models when app is created (for gunicorn compatibility)
-if not load_models():
-    logger.error("Failed to load models during app initialization.")
-    # Don't exit here as gunicorn needs the app to start
-
-def round_to_nearest_resolution_acceptable_by_vae(height, width):
-    """Round dimensions to be compatible with VAE spatial compression ratio"""
-    if pipe and hasattr(pipe, 'vae_spatial_compression_ratio'):
-        height = height - (height % pipe.vae_spatial_compression_ratio)
-        width = width - (width % pipe.vae_spatial_compression_ratio)
-    return height, width
-
 def load_models():
     """Load LTX Video models using official diffusers approach with caching"""
     global pipe, pipe_upsample
@@ -65,6 +53,18 @@ def load_models():
     except Exception as e:
         logger.error(f"❌ Failed to load models: {str(e)}")
         return False
+
+# Load models when app is created (for gunicorn compatibility)
+if not load_models():
+    logger.error("Failed to load models during app initialization.")
+    # Don't exit here as gunicorn needs the app to start
+
+def round_to_nearest_resolution_acceptable_by_vae(height, width):
+    """Round dimensions to be compatible with VAE spatial compression ratio"""
+    if pipe and hasattr(pipe, 'vae_spatial_compression_ratio'):
+        height = height - (height % pipe.vae_spatial_compression_ratio)
+        width = width - (width % pipe.vae_spatial_compression_ratio)
+    return height, width
 
 @app.route('/health', methods=['GET'])
 def health_check():
