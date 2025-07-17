@@ -30,8 +30,12 @@ echo "⚙️  Loading environment variables..."
 source .env
 
 # Check if models exist
-if [ ! -d "models/pose" ] || [ ! -d "models/canny" ]; then
-    echo "🤖 Models not found. Downloading models..."
+if [ ! -f "models/base/ltxv-13b-0.9.7-dev.safetensors" ] || \
+   [ ! -f "models/pose/ltxv-097-ic-lora-pose-control-diffusers.safetensors" ] || \
+   [ ! -f "models/canny/ltxv-097-ic-lora-canny-control-diffusers.safetensors" ] || \
+   [ ! -f "models/depth/ltxv-097-ic-lora-depth-control-diffusers.safetensors" ] || \
+   [ ! -f "models/upscaler/ltxv-spatial-upscaler-0.9.7.safetensors" ]; then
+    echo "🤖 One or more required model files not found. Downloading models..."
     if [ -f "scripts/download-models.sh" ]; then
         chmod +x scripts/download-models.sh
         ./scripts/download-models.sh
@@ -40,7 +44,7 @@ if [ ! -d "models/pose" ] || [ ! -d "models/canny" ]; then
         exit 1
     fi
 else
-    echo "✅ Models already exist"
+    echo "✅ All required model files already exist"
 fi
 
 # Check if running in production mode
