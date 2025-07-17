@@ -985,3 +985,56 @@ For issues and questions:
 ## License
 
 [Add your license information here]
+
+## 🏁 Update Container Start Command
+
+Use the following command as your container start script to ensure all dependencies, code, and models are set up correctly:
+
+```bash
+bash -c "
+# Fix DNS issues if they occur
+echo 'nameserver 8.8.8.8' >> /etc/resolv.conf
+echo 'nameserver 1.1.1.1' >> /etc/resolv.conf
+
+apt update && apt install -y git git-lfs nano ffmpeg;
+git lfs install;
+
+cd /workspace;
+if [ ! -d ltxv-pod ]; then
+  git clone https://github.com/Caveman07/ltxv-pod.git;
+  cd ltxv-pod;
+  git lfs pull;
+else
+  cd ltxv-pod;
+  git reset --hard;
+  git pull;
+  git lfs pull;
+fi;
+
+# Install Python dependencies with retry logic
+pip install --upgrade pip;
+for i in {1..3}; do
+  pip install -r requirements.txt && break || {
+    echo \"Attempt \$i failed, retrying...\";
+    sleep 5;
+  }
+done;
+
+# Ensure /app directory and log file exist
+mkdir -p /app
+touch /app/app.log
+chmod 666 /app/app.log
+
+chmod +x scripts/start-prod.sh;
+./scripts/start-prod.sh
+"
+```
+
+**What this does:**
+
+- Fixes DNS resolution issues by adding Google and Cloudflare DNS servers
+- Installs required system packages (`git`, `git-lfs`, `nano`, `ffmpeg`)
+- Clones or updates the `ltxv-pod` repository
+- Installs Python dependencies with retry logic for network resilience
+- Ensures the `/app` directory and log file exist with correct permissions
+- Runs the production start script
