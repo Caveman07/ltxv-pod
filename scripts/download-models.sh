@@ -86,11 +86,44 @@ fi
 # Download T5 encoder and tokenizer (google/t5-v1_1-large)
 T5_DIR="$MODELS_DIR/t5-v1_1-large"
 if [ ! -d "$T5_DIR" ] || [ -z "$(ls -A $T5_DIR 2>/dev/null)" ]; then
-    echo "\U0001F4E5 Downloading T5 encoder and tokenizer (google/t5-v1_1-large)..."
-    python3 -c "from transformers import T5EncoderModel, T5Tokenizer; T5EncoderModel.from_pretrained('google/t5-v1_1-large', cache_dir='$T5_DIR'); T5Tokenizer.from_pretrained('google/t5-v1_1-large', cache_dir='$T5_DIR')"
-    echo "\u2705 T5 encoder and tokenizer downloaded: $T5_DIR"
+    echo "📥 Downloading T5 encoder and tokenizer (google/t5-v1_1-large)..."
+    python3 -c "
+import os
+import shutil
+from transformers import T5EncoderModel, T5Tokenizer
+
+# Download to cache first
+print('Downloading T5 encoder...')
+encoder = T5EncoderModel.from_pretrained('google/t5-v1_1-large')
+print('Downloading T5 tokenizer...')
+tokenizer = T5Tokenizer.from_pretrained('google/t5-v1_1-large')
+
+# Get cache directory
+from transformers.utils import TRANSFORMERS_CACHE
+cache_dir = TRANSFORMERS_CACHE
+
+# Find the downloaded files in cache
+encoder_cache = os.path.join(cache_dir, 'models--google--t5-v1_1-large')
+if os.path.exists(encoder_cache):
+    # Copy to our models directory
+    if not os.path.exists('$T5_DIR'):
+        os.makedirs('$T5_DIR')
+    
+    # Copy the model files
+    for item in os.listdir(encoder_cache):
+        src = os.path.join(encoder_cache, item)
+        dst = os.path.join('$T5_DIR', item)
+        if os.path.isdir(src):
+            shutil.copytree(src, dst, dirs_exist_ok=True)
+        else:
+            shutil.copy2(src, dst)
+    print('T5 files copied to models/t5-v1_1-large/')
+else:
+    print('Error: Could not find T5 files in cache')
+"
+    echo "✅ T5 encoder and tokenizer downloaded: $T5_DIR"
 else
-    echo "\u23ed\ufe0f T5 encoder and tokenizer already exist, skipping..."
+    echo "⏭️ T5 encoder and tokenizer already exist, skipping..."
 fi
 
 echo ""
