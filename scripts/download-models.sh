@@ -102,22 +102,35 @@ tokenizer = T5Tokenizer.from_pretrained('google/t5-v1_1-large')
 from transformers.utils import TRANSFORMERS_CACHE
 cache_dir = TRANSFORMERS_CACHE
 
-# Find the downloaded files in cache
+# Find the downloaded files in cache (transformers uses snapshots)
 encoder_cache = os.path.join(cache_dir, 'models--google--t5-v1_1-large')
 if os.path.exists(encoder_cache):
-    # Copy to our models directory
-    if not os.path.exists('$T5_DIR'):
-        os.makedirs('$T5_DIR')
-    
-    # Copy the model files
-    for item in os.listdir(encoder_cache):
-        src = os.path.join(encoder_cache, item)
-        dst = os.path.join('$T5_DIR', item)
-        if os.path.isdir(src):
-            shutil.copytree(src, dst, dirs_exist_ok=True)
+    # Find the snapshot directory (usually contains a hash)
+    snapshots = [d for d in os.listdir(encoder_cache) if d.startswith('snapshots')]
+    if snapshots:
+        snapshot_dir = os.path.join(encoder_cache, snapshots[0])
+        # Find the actual snapshot hash directory
+        hash_dirs = [d for d in os.listdir(snapshot_dir) if len(d) == 40]  # Git hash length
+        if hash_dirs:
+            model_dir = os.path.join(snapshot_dir, hash_dirs[0])
+            
+            # Copy to our models directory
+            if not os.path.exists('$T5_DIR'):
+                os.makedirs('$T5_DIR')
+            
+            # Copy all files from the model directory
+            for item in os.listdir(model_dir):
+                src = os.path.join(model_dir, item)
+                dst = os.path.join('$T5_DIR', item)
+                if os.path.isdir(src):
+                    shutil.copytree(src, dst, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(src, dst)
+            print(f'T5 files copied from {model_dir} to models/t5-v1_1-large/')
         else:
-            shutil.copy2(src, dst)
-    print('T5 files copied to models/t5-v1_1-large/')
+            print('Error: Could not find model hash directory in cache')
+    else:
+        print('Error: Could not find snapshots directory in cache')
 else:
     print('Error: Could not find T5 files in cache')
 "
