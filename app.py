@@ -247,8 +247,6 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
             logger.info(f"[Worker] Final upscaled dimensions: {upscaled_width}x{upscaled_height}")
             upscaled_latents = pipe_upsample(
                 latents=latents,
-                width=upscaled_width,
-                height=upscaled_height,
                 output_type="latent"
             ).frames
             logger.info(f"[Worker] Latents shape after upsampling: {getattr(upscaled_latents, 'shape', 'unknown')}")
@@ -257,13 +255,24 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
             update_progress(job_id, 90)
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+            
+            # Calculate actual dimensions from upsampled latents
+            if hasattr(upscaled_latents, 'shape') and len(upscaled_latents.shape) >= 4:
+                actual_height = upscaled_latents.shape[-2] * 32  # Convert latent space to pixel space
+                actual_width = upscaled_latents.shape[-1] * 32
+                logger.info(f"[Worker] Actual upsampled dimensions from latents: {actual_width}x{actual_height}")
+            else:
+                actual_height = upscaled_height
+                actual_width = upscaled_width
+                logger.warning(f"[Worker] Could not determine actual dimensions from latents, using target: {actual_width}x{actual_height}")
+            
             logger.info("[Worker] Denoising upscaled video")
             result = pipe(
                 conditions=[condition1],
                 prompt=prompt,
                 negative_prompt=negative_prompt,
-                width=upscaled_width,
-                height=upscaled_height,
+                width=actual_width,
+                height=actual_height,
                 num_frames=num_frames,
                 denoise_strength=0.4,
                 num_inference_steps=15,  # Reduced from 20 for memory efficiency while maintaining quality
