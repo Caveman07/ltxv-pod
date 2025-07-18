@@ -186,10 +186,27 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
             ).frames
             logger.info(f"[Worker] Latents shape after base generation: {getattr(latents, 'shape', 'unknown')}")
 
-            # Part 2. Upscale generated video using latent upsampler
+            # Part 2. Upscale generated video using latent upsampler (with memory limits)
             update_progress(job_id, 60)
+            
+            # Clear GPU cache to free memory before upscaling
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            
+            # Calculate upscaled dimensions with memory limits
+            # Limit maximum upscaled resolution to prevent CUDA OOM
+            max_upscaled_width = 1536  # Limit to prevent memory issues
+            max_upscaled_height = 864
+            
             upscaled_height = round_to_multiple(downscaled_height * 2)
             upscaled_width = round_to_multiple(downscaled_width * 2)
+            
+            # Apply memory limits
+            if upscaled_width > max_upscaled_width:
+                upscaled_width = max_upscaled_width
+            if upscaled_height > max_upscaled_height:
+                upscaled_height = max_upscaled_height
+                
             logger.info(f"[Worker] Upscaled dimensions: {upscaled_width}x{upscaled_height}")
             upscaled_latents = pipe_upsample(
                 latents=latents,
@@ -199,6 +216,11 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
 
             # Part 3. Denoise the upscaled video to improve texture
             update_progress(job_id, 90)
+            
+            # Clear GPU cache before denoising
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                
             logger.info("[Worker] Denoising upscaled video")
             video_frames = pipe(
                 conditions=[condition1],
@@ -208,7 +230,7 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
                 height=upscaled_height,
                 num_frames=num_frames,
                 denoise_strength=0.4,
-                num_inference_steps=20,  # Increased from 10 for better quality
+                num_inference_steps=15,  # Reduced from 20 for memory efficiency while maintaining quality
                 latents=upscaled_latents,
                 decode_timestep=0.05,
                 image_cond_noise_scale=0.025,
