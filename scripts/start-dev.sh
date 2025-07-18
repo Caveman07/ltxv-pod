@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # LTX Video Pod Development Startup Script
-# Starts Flask app with model loading
+# Starts both RQ worker and Flask app with proper process management
 
 set -e
 
@@ -18,6 +18,15 @@ if [ ! -f "app.py" ]; then
     echo "❌ app.py not found. Please run this script from the ltxv-pod directory"
     exit 1
 fi
+
+# Check if Redis is running
+if ! redis-cli ping &> /dev/null; then
+    echo "❌ Redis is not running. Please start Redis first:"
+    echo "   redis-server"
+    exit 1
+fi
+
+echo "✅ Redis is running"
 
 # Set environment variables
 export PYTHONPATH="${PYTHONPATH}:$(pwd)"
@@ -43,8 +52,45 @@ if command -v nvidia-smi &> /dev/null; then
     python3 -c "import torch; torch.cuda.empty_cache()" || true
 fi
 
-echo "🔧 Starting Flask app with model loading..."
-echo "   Models will be loaded on startup (takes ~5 minutes on first run)"
+echo "🔧 Starting RQ worker (will load models)..."
+echo "   This may take a while on first run as models are downloaded"
+echo "   Press Ctrl+C to stop both processes"
+
+# Function to cleanup background processes
+cleanup() {
+    echo ""
+    echo "🛑 Stopping processes..."
+    if [ ! -z "$WORKER_PID" ]; then
+        kill $WORKER_PID 2>/dev/null || true
+        echo "   RQ worker stopped"
+    fi
+    if [ ! -z "$FLASK_PID" ]; then
+        kill $FLASK_PID 2>/dev/null || true
+        echo "   Flask app stopped"
+    fi
+    exit 0
+}
+
+# Set up signal handlers
+trap cleanup SIGINT SIGTERM
+
+# Start RQ worker in background
+echo "   Starting RQ worker..."
+rq worker video-jobs --boot-hook video_jobs.worker_boot_hook &
+WORKER_PID=$!
+
+# Wait a moment for worker to start loading models
+echo "   Waiting for RQ worker to initialize..."
+sleep 5
+
+# Start Flask app in background
+echo "🔧 Starting Flask app..."
+python3 app.py &
+FLASK_PID=$!
+
+echo "✅ Both processes started:"
+echo "   RQ Worker PID: $WORKER_PID"
+echo "   Flask App PID: $FLASK_PID"
 echo "   Flask app will be available at: http://localhost:$PORT"
 echo ""
 echo "📋 Available endpoints:"
@@ -53,9 +99,8 @@ echo "   GET  /models          - Model status"
 echo "   POST /generate        - Submit video generation job"
 echo "   GET  /status/<job_id> - Check job status"
 echo "   GET  /result/<job_id> - Download result"
-echo "   GET  /jobs            - List all jobs"
 echo ""
-echo "🔄 Press Ctrl+C to stop"
+echo "🔄 Press Ctrl+C to stop both processes"
 
-# Start Flask app
-python3 app.py 
+# Wait for either process to exit
+wait 

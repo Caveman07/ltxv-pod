@@ -4,14 +4,47 @@ import torch
 import tempfile
 import uuid
 from pathlib import Path
+from rq import get_current_job
 from diffusers import LTXConditionPipeline, LTXLatentUpsamplePipeline
 from diffusers.pipelines.ltx.pipeline_ltx_condition import LTXVideoCondition
 from diffusers.utils import export_to_video, load_image, load_video
 
-# Global variables for models - RECEIVED from Flask app via set_pipes()
-# This module NEVER loads models itself - models are loaded only once in app.py
+# Global variables for models - loaded by RQ worker
 pipe = None
 pipe_upsample = None
+
+def load_models():
+    """Load LTX Video models using official diffusers approach with caching"""
+    global pipe, pipe_upsample
+    
+    try:
+        logging.info("Loading LTX Video models from HuggingFace with caching...")
+        
+        # Load base pipeline - this will download and cache the model automatically
+        pipe = LTXConditionPipeline.from_pretrained(
+            "Lightricks/LTX-Video-0.9.7-dev", 
+            torch_dtype=torch.bfloat16
+        )
+        
+        # Load upscaler pipeline - this will download and cache the model automatically
+        pipe_upsample = LTXLatentUpsamplePipeline.from_pretrained(
+            "Lightricks/ltxv-spatial-upscaler-0.9.7", 
+            vae=pipe.vae, 
+            torch_dtype=torch.bfloat16
+        )
+        
+        # Move to GPU if available
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        pipe.to(device)
+        pipe_upsample.to(device)
+        pipe.vae.enable_tiling()
+        
+        logging.info(f"✅ Models loaded successfully on {device}")
+        return True
+        
+    except Exception as e:
+        logging.error(f"❌ Failed to load models: {str(e)}")
+        return False
 
 def set_pipes(p, p_upsample):
     global pipe, pipe_upsample
@@ -27,16 +60,18 @@ def round_to_nearest_resolution_acceptable_by_vae(height, width):
     width = round_to_multiple(width, base)
     return height, width
 
-def video_generation_worker(params, file_bytes, file_name, job_id=None, progress_callback=None):
-    """Generate video with progress reporting"""
+def video_generation_worker(params, file_bytes, file_name):
     global pipe, pipe_upsample
     
-    # Models should already be loaded by Flask app
+    # Models should already be loaded on worker startup, but check just in case
     if pipe is None or pipe_upsample is None:
-        logging.error("❌ Models not loaded. Cannot process video generation.")
+        logging.error("❌ Models not loaded. Worker may not have started properly.")
         return None
     
+    job = get_current_job()
     try:
+        job.meta['progress'] = 5
+        job.save_meta()
         prompt = params.get('prompt', '')
         negative_prompt = params.get('negative_prompt', 'worst quality, inconsistent motion, blurry, jittery, distorted')
         num_frames = int(params.get('num_frames', 96))
@@ -50,10 +85,6 @@ def video_generation_worker(params, file_bytes, file_name, job_id=None, progress
         downscaled_width = round_to_multiple(expected_width * downscale_factor)
         downscaled_height, downscaled_width = round_to_nearest_resolution_acceptable_by_vae(downscaled_height, downscaled_width)
         logging.info(f"[Worker] Downscaled dimensions: {downscaled_width}x{downscaled_height}")
-
-        # Update progress to 5% - Starting
-        if progress_callback and job_id:
-            progress_callback(job_id, 5)
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file_name).suffix) as tmp_file:
             tmp_file.write(file_bytes)
@@ -72,16 +103,9 @@ def video_generation_worker(params, file_bytes, file_name, job_id=None, progress
                 video = load_video(input_path)[:21]
                 condition1 = LTXVideoCondition(video=video, frame_index=0)
 
-            # Update progress to 10% - Input processed
-            if progress_callback and job_id:
-                progress_callback(job_id, 10)
-
+            job.meta['progress'] = 30
+            job.save_meta()
             logging.info(f"[Worker] Generating video at {downscaled_width}x{downscaled_height}")
-            
-            # Update progress to 15% - Starting base generation
-            if progress_callback and job_id:
-                progress_callback(job_id, 15)
-            
             latents = pipe(
                 conditions=[condition1],
                 prompt=prompt,
@@ -95,34 +119,20 @@ def video_generation_worker(params, file_bytes, file_name, job_id=None, progress
             ).frames
             logging.info(f"[Worker] Latents shape after base generation: {getattr(latents, 'shape', 'unknown')}")
 
-            # Update progress to 50% - Base generation complete
-            if progress_callback and job_id:
-                progress_callback(job_id, 50)
-
+            job.meta['progress'] = 60
+            job.save_meta()
             upscaled_height = round_to_multiple(downscaled_height * 2)
             upscaled_width = round_to_multiple(downscaled_width * 2)
             logging.info(f"[Worker] Upscaled dimensions: {upscaled_width}x{upscaled_height}")
-            
-            # Update progress to 55% - Starting upsampling
-            if progress_callback and job_id:
-                progress_callback(job_id, 55)
-            
             upscaled_latents = pipe_upsample(
                 latents=latents,
                 output_type="latent"
             ).frames
             logging.info(f"[Worker] Latents shape after upsampling: {getattr(upscaled_latents, 'shape', 'unknown')}")
 
-            # Update progress to 70% - Upsampling complete
-            if progress_callback and job_id:
-                progress_callback(job_id, 70)
-
+            job.meta['progress'] = 90
+            job.save_meta()
             logging.info("[Worker] Denoising upscaled video")
-            
-            # Update progress to 75% - Starting denoising
-            if progress_callback and job_id:
-                progress_callback(job_id, 75)
-            
             video_frames = pipe(
                 conditions=[condition1],
                 prompt=prompt,
@@ -140,26 +150,37 @@ def video_generation_worker(params, file_bytes, file_name, job_id=None, progress
             ).frames[0]
             logging.info(f"[Worker] Video frames after denoising: {len(video_frames)} frames, size: {video_frames[0].size if video_frames else 'unknown'}")
 
-            # Update progress to 90% - Denoising complete
-            if progress_callback and job_id:
-                progress_callback(job_id, 90)
-
             logging.info(f"[Worker] Resizing to final resolution {expected_width}x{expected_height}")
-            
-            # Update progress to 95% - Starting final processing
-            if progress_callback and job_id:
-                progress_callback(job_id, 95)
-            
             video_frames = [frame.resize((expected_width, expected_height)) for frame in video_frames]
 
             output_filename = f"output_{uuid.uuid4().hex[:8]}.mp4"
             output_path = os.path.join(tempfile.gettempdir(), output_filename)
             export_to_video(video_frames, output_path, fps=24)
             logging.info(f"[Worker] ✅ Video generated successfully: {output_path}")
+            job.meta['progress'] = 100
+            job.save_meta()
             return output_path
         finally:
             if os.path.exists(input_path):
                 os.unlink(input_path)
     except Exception as e:
+        job.meta['progress'] = -1
+        job.save_meta()
         logging.error(f"[Worker] ❌ Error generating video: {str(e)}")
-        return None 
+        return None
+
+# RQ Worker startup function - this will be called when the worker starts
+def worker_startup():
+    """Load models when RQ worker starts"""
+    logging.info("🚀 RQ Worker starting - loading models...")
+    if load_models():
+        logging.info("✅ RQ Worker ready to process jobs")
+    else:
+        logging.error("❌ RQ Worker failed to load models - will not be able to process jobs")
+        # Don't exit - let the worker start but it won't be able to process jobs
+
+# RQ Worker startup hook - this is called automatically by RQ
+def worker_boot_hook(worker):
+    """RQ worker boot hook - called when worker starts"""
+    logging.info("🚀 RQ Worker boot hook - loading models...")
+    worker_startup() 
