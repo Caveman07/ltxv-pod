@@ -32,8 +32,8 @@ format: ## Format code
 	black src/ tests/
 	isort src/ tests/
 
-run-dev: ## Run development server
-	python app.py
+run-dev: ## Run development server (with RQ worker)
+	./scripts/start-dev.sh
 
 run-prod: ## Run production server
 	gunicorn app:app --bind 0.0.0.0:8000 --workers 4

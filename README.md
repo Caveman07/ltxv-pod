@@ -11,6 +11,22 @@ A lightweight video generation service using the official Lightricks LTX Video m
 - **Memory Efficient**: Loads only the necessary models
 - **Simple API**: Clean REST API for easy integration
 - **RunPod Compatible**: Tested and optimized for RunPod environments
+- **Async Job Processing**: Uses Redis Queue (RQ) for long-running video generation jobs
+- **Single Model Loading**: Models are loaded only once by the RQ worker to prevent GPU memory conflicts
+
+## Architecture
+
+This service uses a **two-process architecture** to prevent GPU memory conflicts:
+
+1. **Flask App Process**: Handles HTTP requests, enqueues jobs, and serves results
+2. **RQ Worker Process**: Loads models and processes video generation jobs
+
+**Why this architecture?**
+
+- Prevents double loading of models (which would exhaust GPU memory)
+- Allows the Flask app to start quickly without loading large models
+- Models are loaded only once per worker process and reused for all jobs
+- Better resource utilization and stability
 
 ## Quick Start
 
@@ -20,6 +36,7 @@ A lightweight video generation service using the official Lightricks LTX Video m
 - CUDA-compatible GPU (recommended) or CPU
 - 16GB+ RAM (32GB+ recommended)
 - 50GB+ free disk space for model caching
+- Redis server (for job queue)
 
 ### RunPod Deployment
 
@@ -33,6 +50,8 @@ When deploying on RunPod, the container is started with a special script that en
   - Running `python -c "import torch; torch.cuda.empty_cache()"`
 
 You do not need to do anything extra—this is handled automatically when you use the provided scripts.
+
+**Important:** The RQ worker will load the models once when it starts. Only run **one RQ worker** to avoid multiple model loads.
 
 **RunPod Container Start Command:**
 
@@ -65,7 +84,7 @@ redis-server --daemonize yes;
 sleep 2;
 redis-cli ping;
 
-# Start RQ worker in the background
+# Start RQ worker in the background (ONLY ONE WORKER)
 rq worker video-jobs &
 
 chmod +x scripts/start-prod.sh;
@@ -97,15 +116,37 @@ chmod +x scripts/start-prod.sh;
    - `requirements.txt` contains all runtime dependencies.
    - `requirements-dev.txt` contains all development and testing tools (pytest, flake8, black, etc).
 
-3. **Start the service**:
+3. **Start Redis** (required for job queue):
 
    ```bash
+   # Install Redis if not already installed
+   sudo apt-get install redis-server  # Ubuntu/Debian
+   # or
+   brew install redis  # macOS
+
+   # Start Redis
+   redis-server
+   ```
+
+4. **Start the service**:
+
+   ```bash
+   # Option 1: Use the automated script (recommended)
    make run-dev
    # or
-   # chmod +x scripts/start.sh && ./scripts/start.sh
+   # ./scripts/start-dev.sh
+
+   # Option 2: Manual start (two terminals required)
+   # Terminal 1: Start RQ worker (loads models)
+   rq worker video-jobs
+
+   # Terminal 2: Start Flask app
+   python app.py
    ```
 
    - The startup script will attempt to clear any previous GPU memory allocations and set PyTorch memory config to help prevent CUDA OOM errors. This is automatic.
+   - **Important:** Start the RQ worker first, then the Flask app. Only run one RQ worker.
+   - **Recommended:** Use `make run-dev` which automatically starts both processes correctly.
 
 The first run will automatically download and cache the required models:
 
@@ -124,6 +165,8 @@ Cache locations:
 - `HF_HOME`: `./.cache/huggingface/`
 - `TRANSFORMERS_CACHE`: `./.cache/huggingface/transformers/`
 - `HF_DATASETS_CACHE`: `./.cache/huggingface/datasets/`
+
+**Note:** Models are loaded only by the RQ worker process to prevent GPU memory conflicts.
 
 ## Development & Automation
 
