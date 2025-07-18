@@ -14,6 +14,7 @@ from rq import Queue
 from rq.job import Job
 from redis import Redis
 import time
+from rq import get_current_job
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
@@ -80,8 +81,10 @@ def round_to_nearest_resolution_acceptable_by_vae(height, width):
 
 # --- ASYNC JOB WORKER FUNCTION ---
 def video_generation_worker(params, file_bytes, file_name):
-    """Worker function to generate video and save to temp file. Returns output path."""
+    job = get_current_job()
     try:
+        job.meta['progress'] = 5
+        job.save_meta()
         # Unpack params
         prompt = params.get('prompt', '')
         negative_prompt = params.get('negative_prompt', 'worst quality, inconsistent motion, blurry, jittery, distorted')
@@ -117,6 +120,8 @@ def video_generation_worker(params, file_bytes, file_name):
                 condition1 = LTXVideoCondition(video=video, frame_index=0)
 
             # Part 1. Generate video at smaller resolution
+            job.meta['progress'] = 30
+            job.save_meta()
             logger.info(f"[Worker] Generating video at {downscaled_width}x{downscaled_height}")
             latents = pipe(
                 conditions=[condition1],
@@ -132,6 +137,8 @@ def video_generation_worker(params, file_bytes, file_name):
             logger.info(f"[Worker] Latents shape after base generation: {getattr(latents, 'shape', 'unknown')}")
 
             # Part 2. Upscale generated video using latent upsampler
+            job.meta['progress'] = 60
+            job.save_meta()
             upscaled_height = round_to_multiple(downscaled_height * 2)
             upscaled_width = round_to_multiple(downscaled_width * 2)
             logger.info(f"[Worker] Upscaled dimensions: {upscaled_width}x{upscaled_height}")
@@ -142,6 +149,8 @@ def video_generation_worker(params, file_bytes, file_name):
             logger.info(f"[Worker] Latents shape after upsampling: {getattr(upscaled_latents, 'shape', 'unknown')}")
 
             # Part 3. Denoise the upscaled video to improve texture
+            job.meta['progress'] = 90
+            job.save_meta()
             logger.info("[Worker] Denoising upscaled video")
             video_frames = pipe(
                 conditions=[condition1],
@@ -169,11 +178,15 @@ def video_generation_worker(params, file_bytes, file_name):
             output_path = os.path.join(tempfile.gettempdir(), output_filename)
             export_to_video(video_frames, output_path, fps=24)
             logger.info(f"[Worker] ✅ Video generated successfully: {output_path}")
+            job.meta['progress'] = 100
+            job.save_meta()
             return output_path
         finally:
             if os.path.exists(input_path):
                 os.unlink(input_path)
     except Exception as e:
+        job.meta['progress'] = -1
+        job.save_meta()
         logger.error(f"[Worker] ❌ Error generating video: {str(e)}")
         return None
 
@@ -207,16 +220,28 @@ def generate_video_async():
 def job_status(job_id):
     try:
         job = Job.fetch(job_id, connection=redis_conn)
+        progress = job.meta.get('progress', 0)
+        q = Queue('video-jobs', connection=redis_conn)
+        if job.is_queued:
+            job_ids = q.job_ids
+            position = job_ids.index(job_id) + 1 if job_id in job_ids else None
+            return jsonify({
+                "job_id": job_id,
+                "status": "queued",
+                "progress": progress,
+                "queue_position": position,
+                "queue_length": len(job_ids)
+            })
         if job.is_finished:
-            return jsonify({"job_id": job_id, "status": "done"})
+            return jsonify({"job_id": job_id, "status": "done", "progress": 100})
         elif job.is_failed:
-            return jsonify({"job_id": job_id, "status": "failed", "error": str(job.exc_info)})
+            return jsonify({"job_id": job_id, "status": "failed", "progress": progress, "error": str(job.exc_info)})
         elif job.is_started:
-            return jsonify({"job_id": job_id, "status": "processing"})
+            return jsonify({"job_id": job_id, "status": "processing", "progress": progress})
         else:
-            return jsonify({"job_id": job_id, "status": "queued"})
+            return jsonify({"job_id": job_id, "status": "queued", "progress": progress})
     except Exception as e:
-        return jsonify({"job_id": job_id, "status": "unknown", "error": str(e)})
+        return jsonify({"job_id": job_id, "status": "unknown", "error": str(e), "progress": 0})
 
 @app.route('/result/<job_id>', methods=['GET'])
 def job_result(job_id):
