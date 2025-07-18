@@ -214,13 +214,6 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
             ).frames
             logger.info(f"[Worker] Latents shape after upsampling: {getattr(upscaled_latents, 'shape', 'unknown')}")
 
-            # Validate shape before denoising
-            expected_shape = (1, 128, 12, upscaled_height // 32, upscaled_width // 32)
-            if getattr(upscaled_latents, 'shape', None) != expected_shape:
-                logger.error(f"[Worker] Latents shape {getattr(upscaled_latents, 'shape', None)} does not match expected shape {expected_shape}. Aborting.")
-                update_progress(job_id, -1)
-                return None
-
             # Part 3. Denoise the upscaled video to improve texture
             update_progress(job_id, 90)
             if torch.cuda.is_available():
