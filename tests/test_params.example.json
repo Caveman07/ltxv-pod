@@ -1,0 +1,11 @@
+{
+  "url": "https://YOUR-RUNPOD-URL:8000",
+  "prompt": "A beautiful landscape with mountains and trees",
+  "negative_prompt": "worst quality, inconsistent motion, blurry, jittery, distorted",
+  "num_frames": 96,
+  "num_inference_steps": 30,
+  "height": 480,
+  "width": 832,
+  "seed": 42,
+  "file": "tests/assets/sample_image.png"
+}
