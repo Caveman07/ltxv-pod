@@ -10,11 +10,8 @@ import io
 import tempfile
 import uuid
 from pathlib import Path
-from rq import Queue
-from rq.job import Job
-from redis import Redis
 import time
-from rq import get_current_job
+import threading
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
@@ -22,9 +19,9 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Redis connection and RQ queue
-redis_conn = Redis(host=os.environ.get('REDIS_HOST', 'localhost'), port=int(os.environ.get('REDIS_PORT', 6379)), db=0)
-q = Queue('video-jobs', connection=redis_conn)
+# In-memory job tracking
+jobs = {}
+job_lock = threading.Lock()
 
 # Global variables for models
 pipe = None
@@ -79,12 +76,66 @@ def round_to_nearest_resolution_acceptable_by_vae(height, width):
     width = round_to_multiple(width, base)
     return height, width
 
-# --- ASYNC JOB WORKER FUNCTION ---
-def video_generation_worker(params, file_bytes, file_name):
-    job = get_current_job()
+def process_video_job(job_id, params, file_bytes, file_name):
+    """Process video generation job in background thread"""
+    global jobs
+    
+    with job_lock:
+        jobs[job_id] = {
+            'status': 'processing',
+            'progress': 0,
+            'started_at': time.time(),
+            'result': None,
+            'error': None
+        }
+    
+    def update_progress(job_id, progress):
+        """Callback function to update job progress"""
+        with job_lock:
+            if job_id in jobs:
+                jobs[job_id]['progress'] = progress
+    
     try:
-        job.meta['progress'] = 5
-        job.save_meta()
+        # Update progress to 10%
+        with job_lock:
+            jobs[job_id]['progress'] = 10
+        
+        # Process video generation with progress callback
+        output_path = video_generation_worker(params, file_bytes, file_name, job_id, update_progress)
+        
+        if output_path and os.path.exists(output_path):
+            with job_lock:
+                jobs[job_id].update({
+                    'status': 'completed',
+                    'progress': 100,
+                    'result': output_path,
+                    'completed_at': time.time()
+                })
+            logger.info(f"✅ Job {job_id} completed successfully")
+        else:
+            with job_lock:
+                jobs[job_id].update({
+                    'status': 'failed',
+                    'progress': 0,
+                    'error': 'Video generation failed',
+                    'completed_at': time.time()
+                })
+            logger.error(f"❌ Job {job_id} failed")
+            
+    except Exception as e:
+        with job_lock:
+            jobs[job_id].update({
+                'status': 'failed',
+                'progress': 0,
+                'error': str(e),
+                'completed_at': time.time()
+            })
+        logger.error(f"❌ Job {job_id} failed with error: {str(e)}")
+
+# --- VIDEO GENERATION FUNCTION ---
+def video_generation_worker(params, file_bytes, file_name, job_id, update_progress):
+    try:
+        update_progress(job_id, 5)
         # Unpack params
         prompt = params.get('prompt', '')
         negative_prompt = params.get('negative_prompt', 'worst quality, inconsistent motion, blurry, jittery, distorted')
@@ -120,8 +171,7 @@ def video_generation_worker(params, file_bytes, file_name):
                 condition1 = LTXVideoCondition(video=video, frame_index=0)
 
             # Part 1. Generate video at smaller resolution
-            job.meta['progress'] = 30
-            job.save_meta()
+            update_progress(job_id, 30)
             logger.info(f"[Worker] Generating video at {downscaled_width}x{downscaled_height}")
             latents = pipe(
                 conditions=[condition1],
@@ -137,8 +187,7 @@ def video_generation_worker(params, file_bytes, file_name):
             logger.info(f"[Worker] Latents shape after base generation: {getattr(latents, 'shape', 'unknown')}")
 
             # Part 2. Upscale generated video using latent upsampler
-            job.meta['progress'] = 60
-            job.save_meta()
+            update_progress(job_id, 60)
             upscaled_height = round_to_multiple(downscaled_height * 2)
             upscaled_width = round_to_multiple(downscaled_width * 2)
             logger.info(f"[Worker] Upscaled dimensions: {upscaled_width}x{upscaled_height}")
@@ -149,8 +198,7 @@ def video_generation_worker(params, file_bytes, file_name):
             logger.info(f"[Worker] Latents shape after upsampling: {getattr(upscaled_latents, 'shape', 'unknown')}")
 
             # Part 3. Denoise the upscaled video to improve texture
-            job.meta['progress'] = 90
-            job.save_meta()
+            update_progress(job_id, 90)
             logger.info("[Worker] Denoising upscaled video")
             video_frames = pipe(
                 conditions=[condition1],
@@ -178,15 +226,13 @@ def video_generation_worker(params, file_bytes, file_name):
             output_path = os.path.join(tempfile.gettempdir(), output_filename)
             export_to_video(video_frames, output_path, fps=24)
             logger.info(f"[Worker] ✅ Video generated successfully: {output_path}")
-            job.meta['progress'] = 100
-            job.save_meta()
+            update_progress(job_id, 100)
             return output_path
         finally:
             if os.path.exists(input_path):
                 os.unlink(input_path)
     except Exception as e:
-        job.meta['progress'] = -1
-        job.save_meta()
+        update_progress(job_id, -1)
         logger.error(f"[Worker] ❌ Error generating video: {str(e)}")
         return None
 
@@ -209,50 +255,102 @@ def generate_video_async():
         file_bytes = file.read()
         file_name = file.filename
         params = dict(data)
-        job = q.enqueue(video_generation_worker, params, file_bytes, file_name, job_timeout=7200)
-        logger.info(f"Enqueued job {job.id}")
-        return jsonify({"job_id": job.id, "status": "queued"}), 202
+        
+        # Generate unique job ID
+        job_id = str(uuid.uuid4())
+        
+        # Initialize job status
+        with job_lock:
+            jobs[job_id] = {
+                'status': 'queued',
+                'progress': 0,
+                'created_at': time.time(),
+                'result': None,
+                'error': None
+            }
+        
+        logger.info(f"Enqueued job {job_id} for prompt: {prompt}")
+        
+        # Start processing in background thread
+        thread = threading.Thread(
+            target=process_video_job,
+            args=(job_id, params, file_bytes, file_name)
+        )
+        thread.daemon = True
+        thread.start()
+        
+        return jsonify({"job_id": job_id, "status": "queued"}), 202
     except Exception as e:
         logger.error(f"❌ Error enqueuing video job: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/status/<job_id>', methods=['GET'])
 def job_status(job_id):
+    """Get job status and progress"""
     try:
-        job = Job.fetch(job_id, connection=redis_conn)
-        progress = job.meta.get('progress', 0)
-        q = Queue('video-jobs', connection=redis_conn)
-        if job.is_queued:
-            job_ids = q.job_ids
-            position = job_ids.index(job_id) + 1 if job_id in job_ids else None
-            return jsonify({
+        with job_lock:
+            if job_id not in jobs:
+                return jsonify({"error": "Job not found"}), 404
+            
+            job = jobs[job_id]
+            response = {
                 "job_id": job_id,
-                "status": "queued",
-                "progress": progress,
-                "queue_position": position,
-                "queue_length": len(job_ids)
-            })
-        if job.is_finished:
-            return jsonify({"job_id": job_id, "status": "done", "progress": 100})
-        elif job.is_failed:
-            return jsonify({"job_id": job_id, "status": "failed", "progress": progress, "error": str(job.exc_info)})
-        elif job.is_started:
-            return jsonify({"job_id": job_id, "status": "processing", "progress": progress})
-        else:
-            return jsonify({"job_id": job_id, "status": "queued", "progress": progress})
+                "status": job['status'],
+                "progress": job['progress']
+            }
+            
+            # Add status-specific messages
+            if job['status'] == 'queued':
+                response['message'] = 'Job is queued and waiting to start'
+            elif job['status'] == 'processing':
+                response['message'] = 'Job is currently processing'
+            elif job['status'] == 'completed':
+                response['message'] = 'Job completed successfully - stop polling and use /result endpoint'
+                response['result_ready'] = True
+            elif job['status'] == 'failed':
+                response['message'] = f'Job failed: {job.get("error", "Unknown error")}'
+                response['should_stop_polling'] = True
+            
+            # Add timing information
+            if 'created_at' in job:
+                response['created_at'] = job['created_at']
+            if 'started_at' in job:
+                response['started_at'] = job['started_at']
+            if 'completed_at' in job:
+                response['completed_at'] = job['completed_at']
+            
+            # Add error information if failed
+            if job['status'] == 'failed' and job['error']:
+                response['error'] = job['error']
+            
+            return jsonify(response)
+            
     except Exception as e:
-        return jsonify({"job_id": job_id, "status": "unknown", "error": str(e), "progress": 0})
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/result/<job_id>', methods=['GET'])
 def job_result(job_id):
+    """Download job result"""
     try:
-        job = Job.fetch(job_id, connection=redis_conn)
-        if not job.is_finished or not job.result:
-            return jsonify({"error": "Result not ready"}), 404
-        output_path = job.result
-        if not os.path.exists(output_path):
-            return jsonify({"error": "Output file not found"}), 404
-        return send_file(output_path, mimetype='video/mp4', as_attachment=True, download_name=os.path.basename(output_path))
+        with job_lock:
+            if job_id not in jobs:
+                return jsonify({"error": "Job not found"}), 404
+            
+            job = jobs[job_id]
+            
+            if job['status'] != 'completed':
+                return jsonify({"error": "Job not completed"}), 400
+            
+            if not job['result'] or not os.path.exists(job['result']):
+                return jsonify({"error": "Result file not found"}), 404
+            
+            return send_file(
+                job['result'], 
+                mimetype='video/mp4', 
+                as_attachment=True, 
+                download_name=os.path.basename(job['result'])
+            )
+            
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -288,6 +386,11 @@ def list_models():
     })
 
 if __name__ == '__main__':
+    # Load models on startup
+    if not load_models():
+        logger.error("Failed to load models. Exiting.")
+        exit(1)
+    
     # Run the Flask app
     port = int(os.environ.get('PORT', 8000))  # Changed default from 5000 to 8000
     app.run(host='0.0.0.0', port=port, debug=False)
