@@ -140,10 +140,10 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
         prompt = params.get('prompt', '')
         negative_prompt = params.get('negative_prompt', 'worst quality, inconsistent motion, blurry, jittery, distorted')
         num_frames = int(params.get('num_frames', 96))
-        num_inference_steps = int(params.get('num_inference_steps', 30))
-        expected_height = int(params.get('height', 480))
-        expected_width = int(params.get('width', 832))
-        downscale_factor = float(params.get('downscale_factor', 2/3))
+        num_inference_steps = int(params.get('num_inference_steps', 50))  # Increased from 30
+        expected_height = int(params.get('height', 720))  # Increased from 480
+        expected_width = int(params.get('width', 1280))   # Increased from 832
+        downscale_factor = float(params.get('downscale_factor', 0.8))  # Increased from 2/3 (0.67)
         seed = int(params.get('seed', 0))
 
         # Calculate dimensions
@@ -208,7 +208,7 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
                 height=upscaled_height,
                 num_frames=num_frames,
                 denoise_strength=0.4,
-                num_inference_steps=10,
+                num_inference_steps=20,  # Increased from 10 for better quality
                 latents=upscaled_latents,
                 decode_timestep=0.05,
                 image_cond_noise_scale=0.025,
@@ -224,7 +224,7 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
             # Export video
             output_filename = f"output_{uuid.uuid4().hex[:8]}.mp4"
             output_path = os.path.join(tempfile.gettempdir(), output_filename)
-            export_to_video(video_frames, output_path, fps=24)
+            export_to_video(video_frames, output_path, fps=30)  # Increased from 24 for smoother motion
             logger.info(f"[Worker] ✅ Video generated successfully: {output_path}")
             update_progress(job_id, 100)
             return output_path
