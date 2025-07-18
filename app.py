@@ -84,43 +84,44 @@ def generate_video():
     try:
         if pipe is None or pipe_upsample is None:
             return jsonify({"error": "Models not loaded"}), 503
-        
-        data = request.get_json()
+
+        # Use form data, not JSON
+        data = request.form
         if not data:
-            return jsonify({"error": "No JSON data provided"}), 400
-        
+            return jsonify({"error": "No form data provided"}), 400
+
         # Extract parameters
         prompt = data.get('prompt', '')
+        if not prompt:
+            return jsonify({"error": "No prompt provided"}), 400
         negative_prompt = data.get('negative_prompt', 'worst quality, inconsistent motion, blurry, jittery, distorted')
-        num_frames = data.get('num_frames', 96)
-        num_inference_steps = data.get('num_inference_steps', 30)
-        expected_height = data.get('height', 480)
-        expected_width = data.get('width', 832)
-        downscale_factor = data.get('downscale_factor', 2/3)
-        seed = data.get('seed', 0)
-        
+        num_frames = int(data.get('num_frames', 96))
+        num_inference_steps = int(data.get('num_inference_steps', 30))
+        expected_height = int(data.get('height', 480))
+        expected_width = int(data.get('width', 832))
+        downscale_factor = float(data.get('downscale_factor', 2/3))
+        seed = int(data.get('seed', 0))
+
         # Calculate dimensions
         downscaled_height, downscaled_width = int(expected_height * downscale_factor), int(expected_width * downscale_factor)
         downscaled_height, downscaled_width = round_to_nearest_resolution_acceptable_by_vae(downscaled_height, downscaled_width)
-        
+
         # Handle input file
-        if 'file' not in request.files:
+        if 'file' not in request.files or request.files['file'].filename == '':
             return jsonify({"error": "No file provided"}), 400
-        
+
         file = request.files['file']
-        if file.filename == '':
-            return jsonify({"error": "No file selected"}), 400
-        
+
         # Save uploaded file temporarily
         with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tmp_file:
             file.save(tmp_file.name)
             input_path = tmp_file.name
-        
+
         try:
             # Determine if input is image or video based on file extension
             file_ext = Path(file.filename).suffix.lower()
             is_image = file_ext in ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp']
-            
+
             if is_image:
                 # Image-to-video generation
                 logger.info("Processing image-to-video generation")
@@ -132,7 +133,7 @@ def generate_video():
                 logger.info("Processing video-to-video generation")
                 video = load_video(input_path)[:21]  # Use first 21 frames
                 condition1 = LTXVideoCondition(video=video, frame_index=0)
-            
+
             # Part 1. Generate video at smaller resolution
             logger.info(f"Generating video at {downscaled_width}x{downscaled_height}")
             latents = pipe(
@@ -146,7 +147,7 @@ def generate_video():
                 generator=torch.Generator().manual_seed(seed),
                 output_type="latent",
             ).frames
-            
+
             # Part 2. Upscale generated video using latent upsampler
             logger.info("Upscaling video using latent upsampler")
             upscaled_height, upscaled_width = downscaled_height * 2, downscaled_width * 2
@@ -154,7 +155,7 @@ def generate_video():
                 latents=latents,
                 output_type="latent"
             ).frames
-            
+
             # Part 3. Denoise the upscaled video to improve texture
             logger.info("Denoising upscaled video")
             video_frames = pipe(
@@ -162,7 +163,7 @@ def generate_video():
                 prompt=prompt,
                 negative_prompt=negative_prompt,
                 width=upscaled_width,
-                height=upscaled_height,
+                height=upscaled_width,
                 num_frames=num_frames,
                 denoise_strength=0.4,  # 4 inference steps out of 10
                 num_inference_steps=10,
@@ -172,18 +173,18 @@ def generate_video():
                 generator=torch.Generator().manual_seed(seed),
                 output_type="pil",
             ).frames[0]
-            
+
             # Part 4. Downscale to expected resolution
             logger.info(f"Resizing to final resolution {expected_width}x{expected_height}")
             video_frames = [frame.resize((expected_width, expected_height)) for frame in video_frames]
-            
+
             # Export video
             output_filename = f"output_{uuid.uuid4().hex[:8]}.mp4"
             output_path = os.path.join(tempfile.gettempdir(), output_filename)
             export_to_video(video_frames, output_path, fps=24)
-            
+
             logger.info(f"✅ Video generated successfully: {output_path}")
-            
+
             # Return video file
             return send_file(
                 output_path,
@@ -191,12 +192,12 @@ def generate_video():
                 as_attachment=True,
                 download_name=output_filename
             )
-            
+
         finally:
             # Clean up temporary input file
             if os.path.exists(input_path):
                 os.unlink(input_path)
-    
+
     except Exception as e:
         logger.error(f"❌ Error generating video: {str(e)}")
         return jsonify({"error": str(e)}), 500

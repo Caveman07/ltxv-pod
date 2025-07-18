@@ -31,3 +31,9 @@ Thumbs.db
 # Models (do not version control large model files)
 models/
 /app/models/
+
+# User-specific test config
+tests/test_params.json
+
+# Test assets (do not commit test images or files)
+tests/assets/
