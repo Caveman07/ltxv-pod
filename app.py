@@ -155,19 +155,42 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
         # Save uploaded file to temp
         with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file_name).suffix) as tmp_file:
             tmp_file.write(file_bytes)
+            tmp_file.flush()  # Ensure data is written to disk
+            os.fsync(tmp_file.fileno())  # Force sync to disk
             input_path = tmp_file.name
 
-        # Validate input file before processing
-        try:
-            file_ext = Path(file_name).suffix.lower()
-            is_image = file_ext in ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp']
-            if is_image:
-                # Try to open as image to validate
-                Image.open(input_path).verify()
-        except Exception as e:
-            logger.error(f"[Worker] Invalid input file: {e}")
-            update_progress(job_id, -1)
-            return None
+        # Validate input file before processing (with retry for race conditions)
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                file_ext = Path(file_name).suffix.lower()
+                is_image = file_ext in ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp']
+                if is_image:
+                    # Check if file exists and has content
+                    if not os.path.exists(input_path):
+                        raise Exception(f"File does not exist: {input_path}")
+                    
+                    file_size = os.path.getsize(input_path)
+                    if file_size == 0:
+                        raise Exception(f"File is empty: {input_path}")
+                    
+                    # Try to open as image to validate
+                    try:
+                        with Image.open(input_path) as img:
+                            img.verify()
+                    except Exception as img_error:
+                        raise Exception(f"Invalid image format: {img_error}")
+                        
+                    logger.info(f"[Worker] Input file validated: {file_name} ({file_size} bytes)")
+                    break  # Success, exit retry loop
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    logger.warning(f"[Worker] File validation attempt {attempt + 1} failed: {e}, retrying...")
+                    time.sleep(0.1)  # Small delay before retry
+                else:
+                    logger.error(f"[Worker] Input file validation failed after {max_retries} attempts: {e}")
+                    update_progress(job_id, -1)
+                    return None
 
         try:
             file_ext = Path(file_name).suffix.lower()
