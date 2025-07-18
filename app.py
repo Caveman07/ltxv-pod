@@ -386,11 +386,6 @@ def list_models():
     })
 
 if __name__ == '__main__':
-    # Load models on startup
-    if not load_models():
-        logger.error("Failed to load models. Exiting.")
-        exit(1)
-    
     # Run the Flask app
     port = int(os.environ.get('PORT', 8000))  # Changed default from 5000 to 8000
     app.run(host='0.0.0.0', port=port, debug=False)
