@@ -22,14 +22,21 @@ def load_test_params():
     return None
 
 def wait_for_job_done(session, base_url, job_id, timeout=900, poll_interval=5):
-    """Poll the status endpoint until job is done or failed, or timeout."""
+    """Poll the status endpoint until job is done or failed, or timeout. Print progress."""
     start = time.time()
+    last_progress = -1
     while time.time() - start < timeout:
         resp = session.get(f"{base_url}/status/{job_id}")
         data = resp.json()
-        if data.get("status") == "done":
+        progress = data.get("progress", 0)
+        status = data.get("status")
+        print(f"Job {job_id} status: {status}, progress: {progress}%")
+        assert progress >= last_progress, "Progress did not increase or stay the same"
+        last_progress = progress
+        if status == "done":
+            assert progress == 100, "Progress should be 100 when done"
             return True
-        if data.get("status") == "failed":
+        if status == "failed":
             raise Exception(f"Job failed: {data.get('error')}")
         time.sleep(poll_interval)
     raise TimeoutError("Job did not complete in time")
