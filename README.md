@@ -53,6 +53,8 @@ You do not need to do anything extra—this is handled automatically when you us
 
 **Important:** The RQ worker will load the models once when it starts. Only run **one RQ worker** to avoid multiple model loads.
 
+**Note:** The RQ worker now pre-loads models on startup (takes ~5 minutes), so it's ready to process jobs immediately without delay.
+
 **RunPod Container Start Command:**
 
 ```bash
@@ -85,7 +87,7 @@ sleep 2;
 redis-cli ping;
 
 # Start RQ worker in the background (ONLY ONE WORKER)
-rq worker video-jobs &
+python3 worker.py &
 
 chmod +x scripts/start-prod.sh;
 ./scripts/start-prod.sh
@@ -137,16 +139,17 @@ chmod +x scripts/start-prod.sh;
    # ./scripts/start-dev.sh
 
    # Option 2: Manual start (two terminals required)
-   # Terminal 1: Start RQ worker (loads models)
-   rq worker video-jobs
+   # Terminal 1: Start RQ worker (loads models - takes ~5 minutes)
+   python3 worker.py
 
    # Terminal 2: Start Flask app
-   python app.py
+   python3 app.py
    ```
 
    - The startup script will attempt to clear any previous GPU memory allocations and set PyTorch memory config to help prevent CUDA OOM errors. This is automatic.
    - **Important:** Start the RQ worker first, then the Flask app. Only run one RQ worker.
    - **Recommended:** Use `make run-dev` which automatically starts both processes correctly.
+   - **Note:** RQ worker takes ~5 minutes to load models on startup, but then processes all jobs quickly.
 
 The first run will automatically download and cache the required models:
 
