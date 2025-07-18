@@ -236,19 +236,14 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
             max_upscaled_width = 1280  # 1280 is divisible by 32
             max_upscaled_height = 704  # 704 is divisible by 32 (22 * 32)
             
-            # Calculate raw upscaled dimensions
-            raw_upscaled_height = downscaled_height * 2
-            raw_upscaled_width = downscaled_width * 2
-            logger.info(f"[Worker] Raw upscaled dimensions: {raw_upscaled_width}x{raw_upscaled_height}")
+            # Calculate target upscaled dimensions (with caps applied first)
+            target_upscaled_height = min(downscaled_height * 2, max_upscaled_height)
+            target_upscaled_width = min(downscaled_width * 2, max_upscaled_width)
+            logger.info(f"[Worker] Target upscaled dimensions: {target_upscaled_width}x{target_upscaled_height}")
             
             # Round to multiples of 32
-            rounded_height = round_to_multiple(raw_upscaled_height, 32)
-            rounded_width = round_to_multiple(raw_upscaled_width, 32)
-            logger.info(f"[Worker] Rounded dimensions: {rounded_width}x{rounded_height}")
-            
-            # Apply maximum caps
-            upscaled_height = min(rounded_height, max_upscaled_height)
-            upscaled_width = min(rounded_width, max_upscaled_width)
+            upscaled_height = round_to_multiple(target_upscaled_height, 32)
+            upscaled_width = round_to_multiple(target_upscaled_width, 32)
             logger.info(f"[Worker] Final upscaled dimensions: {upscaled_width}x{upscaled_height}")
             upscaled_latents = pipe_upsample(
                 latents=latents,
