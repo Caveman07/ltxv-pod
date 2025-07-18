@@ -16,3 +16,5 @@ av>=10.0.0,<11.0.0
 xformers>=0.0.29
 sentencepiece>=0.1.99,<0.2.0
 git+https://github.com/huggingface/diffusers.git@main
+rq>=1.15.1
+redis>=4.6.0
