@@ -201,6 +201,18 @@ def job_status(job_id):
                 "progress": job['progress']
             }
             
+            # Add status-specific messages
+            if job['status'] == 'queued':
+                response['message'] = 'Job is queued and waiting to start'
+            elif job['status'] == 'processing':
+                response['message'] = 'Job is currently processing'
+            elif job['status'] == 'completed':
+                response['message'] = 'Job completed successfully - stop polling and use /result endpoint'
+                response['result_ready'] = True
+            elif job['status'] == 'failed':
+                response['message'] = f'Job failed: {job.get("error", "Unknown error")}'
+                response['should_stop_polling'] = True
+            
             # Add timing information
             if 'created_at' in job:
                 response['created_at'] = job['created_at']
