@@ -59,11 +59,15 @@ if not load_models():
     logger.error("Failed to load models during app initialization.")
     # Don't exit here as gunicorn needs the app to start
 
+def round_to_multiple(x, base=8):
+    """Round up to the nearest multiple of base (default 8)"""
+    return int(base * ((int(x) + base - 1) // base))
+
 def round_to_nearest_resolution_acceptable_by_vae(height, width):
-    """Round dimensions to be compatible with VAE spatial compression ratio"""
-    if pipe and hasattr(pipe, 'vae_spatial_compression_ratio'):
-        height = height - (height % pipe.vae_spatial_compression_ratio)
-        width = width - (width % pipe.vae_spatial_compression_ratio)
+    """Round dimensions to be compatible with VAE spatial compression ratio (default 8)"""
+    base = getattr(pipe, 'vae_spatial_compression_ratio', 8) if pipe else 8
+    height = round_to_multiple(height, base)
+    width = round_to_multiple(width, base)
     return height, width
 
 @app.route('/health', methods=['GET'])
@@ -102,9 +106,11 @@ def generate_video():
         downscale_factor = float(data.get('downscale_factor', 2/3))
         seed = int(data.get('seed', 0))
 
-        # Calculate dimensions
-        downscaled_height, downscaled_width = int(expected_height * downscale_factor), int(expected_width * downscale_factor)
+        # Calculate dimensions (always round to multiple of 8)
+        downscaled_height = round_to_multiple(expected_height * downscale_factor)
+        downscaled_width = round_to_multiple(expected_width * downscale_factor)
         downscaled_height, downscaled_width = round_to_nearest_resolution_acceptable_by_vae(downscaled_height, downscaled_width)
+        logger.info(f"Downscaled dimensions: {downscaled_width}x{downscaled_height}")
 
         # Handle input file
         if 'file' not in request.files or request.files['file'].filename == '':
@@ -147,14 +153,17 @@ def generate_video():
                 generator=torch.Generator().manual_seed(seed),
                 output_type="latent",
             ).frames
+            logger.info(f"Latents shape after base generation: {getattr(latents, 'shape', 'unknown')}")
 
             # Part 2. Upscale generated video using latent upsampler
-            logger.info("Upscaling video using latent upsampler")
-            upscaled_height, upscaled_width = downscaled_height * 2, downscaled_width * 2
+            upscaled_height = round_to_multiple(downscaled_height * 2)
+            upscaled_width = round_to_multiple(downscaled_width * 2)
+            logger.info(f"Upscaled dimensions: {upscaled_width}x{upscaled_height}")
             upscaled_latents = pipe_upsample(
                 latents=latents,
                 output_type="latent"
             ).frames
+            logger.info(f"Latents shape after upsampling: {getattr(upscaled_latents, 'shape', 'unknown')}")
 
             # Part 3. Denoise the upscaled video to improve texture
             logger.info("Denoising upscaled video")
@@ -163,7 +172,7 @@ def generate_video():
                 prompt=prompt,
                 negative_prompt=negative_prompt,
                 width=upscaled_width,
-                height=upscaled_width,
+                height=upscaled_height,
                 num_frames=num_frames,
                 denoise_strength=0.4,  # 4 inference steps out of 10
                 num_inference_steps=10,
@@ -173,6 +182,7 @@ def generate_video():
                 generator=torch.Generator().manual_seed(seed),
                 output_type="pil",
             ).frames[0]
+            logger.info(f"Video frames after denoising: {len(video_frames)} frames, size: {video_frames[0].size if video_frames else 'unknown'}")
 
             # Part 4. Downscale to expected resolution
             logger.info(f"Resizing to final resolution {expected_width}x{expected_height}")
