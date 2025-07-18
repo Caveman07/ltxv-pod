@@ -49,6 +49,14 @@ else
     echo "⚠️ No NVIDIA GPU detected, will use CPU (this will be very slow)"
 fi
 
+# GPU memory management: clear previous allocations and set PyTorch config
+if command -v nvidia-smi &> /dev/null; then
+    echo "🧹 Clearing GPU memory allocations (if any)..."
+    nvidia-smi --gpu-reset || echo "⚠️ GPU reset not supported on this device. Skipping."
+    export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+    python3 -c "import torch; torch.cuda.empty_cache()" || true
+fi
+
 # Set environment variables
 export PYTHONPATH="${PYTHONPATH}:$(pwd)"
 export HF_HOME="${HF_HOME:-$(pwd)/.cache/huggingface}"
