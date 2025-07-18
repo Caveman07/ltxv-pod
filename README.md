@@ -11,22 +11,26 @@ A lightweight video generation service using the official Lightricks LTX Video m
 - **Memory Efficient**: Loads only the necessary models
 - **Simple API**: Clean REST API for easy integration
 - **RunPod Compatible**: Tested and optimized for RunPod environments
-- **Async Job Processing**: Uses Redis Queue (RQ) for long-running video generation jobs
-- **Single Model Loading**: Models are loaded only once by the RQ worker to prevent GPU memory conflicts
+- **Single Process**: Simple synchronous processing for reliable deployment
+- **Job Status Tracking**: Async job processing with progress reporting and status endpoints
 
 ## Architecture
 
-This service uses a **two-process architecture** to prevent GPU memory conflicts:
+This service uses a **single-process architecture** with **background job processing**:
 
-1. **Flask App Process**: Handles HTTP requests, enqueues jobs, and serves results
-2. **RQ Worker Process**: Loads models and processes video generation jobs
+1. **Flask App Process**: Handles HTTP requests and manages job queue
+2. **Background Threads**: Process video generation jobs asynchronously
+3. **In-Memory Job Tracking**: Track job status, progress, and results
+4. **Model Loading**: Models are loaded once when the app starts and reused for all requests
 
 **Why this architecture?**
 
-- Prevents double loading of models (which would exhaust GPU memory)
-- Allows the Flask app to start quickly without loading large models
-- Models are loaded only once per worker process and reused for all jobs
-- Better resource utilization and stability
+- Simple and reliable for single container deployments
+- No complex process management or external dependencies (Redis)
+- Models loaded once and reused efficiently
+- Background processing prevents request timeouts
+- Job status tracking for long-running operations
+- Better suited for RunPod and similar container environments
 
 ## Quick Start
 
@@ -36,11 +40,10 @@ This service uses a **two-process architecture** to prevent GPU memory conflicts
 - CUDA-compatible GPU (recommended) or CPU
 - 16GB+ RAM (32GB+ recommended)
 - 50GB+ free disk space for model caching
-- Redis server (for job queue)
 
 ### RunPod Deployment
 
-When deploying on RunPod, the container is started with a special script that ensures the latest code and models are pulled, dependencies are installed, Redis is running, and the production server and RQ worker are started. This is different from local development, where you use the Makefile.
+When deploying on RunPod, the container is started with a special script that ensures the latest code and models are pulled, dependencies are installed, and the production server is started.
 
 **GPU Memory Management:**
 
@@ -51,15 +54,11 @@ When deploying on RunPod, the container is started with a special script that en
 
 You do not need to do anything extra—this is handled automatically when you use the provided scripts.
 
-**Important:** The RQ worker will load the models once when it starts. Only run **one RQ worker** to avoid multiple model loads.
-
-**Note:** The RQ worker now pre-loads models on startup (takes ~5 minutes), so it's ready to process jobs immediately without delay.
-
 **RunPod Container Start Command:**
 
 ```bash
 bash -c "
-apt update && apt install -y git git-lfs nano ffmpeg redis-server;
+apt update && apt install -y git git-lfs nano ffmpeg;
 git lfs install;
 
 cd /workspace;
@@ -81,21 +80,12 @@ mkdir -p /app
 touch /app/app.log
 chmod 666 /app/app.log
 
-# Start Redis server in the background
-redis-server --daemonize yes;
-sleep 2;
-redis-cli ping;
-
-# Start RQ worker in the background (ONLY ONE WORKER)
-# The worker will automatically load models on startup via boot hook
-rq worker video-jobs --boot-hook video_jobs.worker_boot_hook &
-
 chmod +x scripts/start-prod.sh;
 ./scripts/start-prod.sh
 "
 ```
 
-- This script will always pull the latest code and models, install dependencies, start Redis, start the RQ worker, and start the production server.
+- This script will always pull the latest code and models, install dependencies, and start the production server.
 - For **local development or CI**, use the `Makefile` commands (see the [Development & Automation](#development--automation) section).
 
 ### Installation
@@ -119,19 +109,7 @@ chmod +x scripts/start-prod.sh;
    - `requirements.txt` contains all runtime dependencies.
    - `requirements-dev.txt` contains all development and testing tools (pytest, flake8, black, etc).
 
-3. **Start Redis** (required for job queue):
-
-   ```bash
-   # Install Redis if not already installed
-   sudo apt-get install redis-server  # Ubuntu/Debian
-   # or
-   brew install redis  # macOS
-
-   # Start Redis
-   redis-server
-   ```
-
-4. **Start the service**:
+3. **Start the service**:
 
    ```bash
    # Option 1: Use the automated script (recommended)
@@ -139,18 +117,12 @@ chmod +x scripts/start-prod.sh;
    # or
    # ./scripts/start-dev.sh
 
-   # Option 2: Manual start (two terminals required)
-   # Terminal 1: Start RQ worker (loads models - takes ~5 minutes)
-   rq worker video-jobs --boot-hook video_jobs.worker_boot_hook
-
-   # Terminal 2: Start Flask app
+   # Option 2: Direct start
    python3 app.py
    ```
 
    - The startup script will attempt to clear any previous GPU memory allocations and set PyTorch memory config to help prevent CUDA OOM errors. This is automatic.
-   - **Important:** Start the RQ worker first, then the Flask app. Only run one RQ worker.
-   - **Recommended:** Use `make run-dev` which automatically starts both processes correctly.
-   - **Note:** RQ worker takes ~5 minutes to load models on startup, but then processes all jobs quickly.
+   - **Note:** Models are loaded on startup (takes ~5 minutes on first run), then all requests are processed immediately.
 
 The first run will automatically download and cache the required models:
 
@@ -170,7 +142,7 @@ Cache locations:
 - `TRANSFORMERS_CACHE`: `./.cache/huggingface/transformers/`
 - `HF_DATASETS_CACHE`: `./.cache/huggingface/datasets/`
 
-**Note:** Models are loaded only by the RQ worker process to prevent GPU memory conflicts.
+**Note:** Models are loaded once by the Flask app and reused for all requests.
 
 ## Development & Automation
 

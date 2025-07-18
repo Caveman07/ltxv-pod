@@ -32,7 +32,7 @@ format: ## Format code
 	black src/ tests/
 	isort src/ tests/
 
-run-dev: ## Run development server (with RQ worker)
+run-dev: ## Run development server
 	./scripts/start-dev.sh
 
 run-prod: ## Run production server
