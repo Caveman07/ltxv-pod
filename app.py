@@ -151,6 +151,11 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
         downscaled_width = round_to_multiple(expected_width * downscale_factor)
         downscaled_height, downscaled_width = round_to_nearest_resolution_acceptable_by_vae(downscaled_height, downscaled_width)
         logger.info(f"[Worker] Downscaled dimensions: {downscaled_width}x{downscaled_height}")
+        
+        # Ensure expected dimensions are also multiples of 32 for final resize
+        final_expected_height = round_to_multiple(expected_height, 32)
+        final_expected_width = round_to_multiple(expected_width, 32)
+        logger.info(f"[Worker] Final expected dimensions: {final_expected_width}x{final_expected_height}")
 
         # Save uploaded file to temp
         logger.info(f"[Worker] Writing {len(file_bytes)} bytes to temp file for {file_name}")
@@ -227,12 +232,24 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
             update_progress(job_id, 60)
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-            # Cap upscaled resolution to 1280x720 (multiple of 32)
-            max_upscaled_width = 1280
-            max_upscaled_height = 720
-            upscaled_height = min(round_to_multiple(downscaled_height * 2, 32), max_upscaled_height)
-            upscaled_width = min(round_to_multiple(downscaled_width * 2, 32), max_upscaled_width)
-            logger.info(f"[Worker] Upscaled dimensions: {upscaled_width}x{upscaled_height}")
+            # Cap upscaled resolution to 1280x704 (multiple of 32)
+            max_upscaled_width = 1280  # 1280 is divisible by 32
+            max_upscaled_height = 704  # 704 is divisible by 32 (22 * 32)
+            
+            # Calculate raw upscaled dimensions
+            raw_upscaled_height = downscaled_height * 2
+            raw_upscaled_width = downscaled_width * 2
+            logger.info(f"[Worker] Raw upscaled dimensions: {raw_upscaled_width}x{raw_upscaled_height}")
+            
+            # Round to multiples of 32
+            rounded_height = round_to_multiple(raw_upscaled_height, 32)
+            rounded_width = round_to_multiple(raw_upscaled_width, 32)
+            logger.info(f"[Worker] Rounded dimensions: {rounded_width}x{rounded_height}")
+            
+            # Apply maximum caps
+            upscaled_height = min(rounded_height, max_upscaled_height)
+            upscaled_width = min(rounded_width, max_upscaled_width)
+            logger.info(f"[Worker] Final upscaled dimensions: {upscaled_width}x{upscaled_height}")
             upscaled_latents = pipe_upsample(
                 latents=latents,
                 output_type="latent"
@@ -267,8 +284,8 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
             logger.info(f"[Worker] Video frames after denoising: {len(video_frames)} frames, size: {video_frames[0].size if video_frames else 'unknown'}")
 
             # Part 4. Downscale to expected resolution
-            logger.info(f"[Worker] Resizing to final resolution {expected_width}x{expected_height}")
-            video_frames = [frame.resize((expected_width, expected_height)) for frame in video_frames]
+            logger.info(f"[Worker] Resizing to final resolution {final_expected_width}x{final_expected_height}")
+            video_frames = [frame.resize((final_expected_width, final_expected_height)) for frame in video_frames]
 
             # Export video
             output_filename = f"output_{uuid.uuid4().hex[:8]}.mp4"
