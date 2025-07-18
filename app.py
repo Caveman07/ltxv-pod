@@ -157,6 +157,18 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
             tmp_file.write(file_bytes)
             input_path = tmp_file.name
 
+        # Validate input file before processing
+        try:
+            file_ext = Path(file_name).suffix.lower()
+            is_image = file_ext in ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp']
+            if is_image:
+                # Try to open as image to validate
+                Image.open(input_path).verify()
+        except Exception as e:
+            logger.error(f"[Worker] Invalid input file: {e}")
+            update_progress(job_id, -1)
+            return None
+
         try:
             file_ext = Path(file_name).suffix.lower()
             is_image = file_ext in ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp']
@@ -188,25 +200,13 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
 
             # Part 2. Upscale generated video using latent upsampler (with memory limits)
             update_progress(job_id, 60)
-            
-            # Clear GPU cache to free memory before upscaling
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-            
-            # Calculate upscaled dimensions with memory limits
-            # Limit maximum upscaled resolution to prevent CUDA OOM
-            max_upscaled_width = 1536  # Limit to prevent memory issues
-            max_upscaled_height = 864
-            
-            upscaled_height = round_to_multiple(downscaled_height * 2)
-            upscaled_width = round_to_multiple(downscaled_width * 2)
-            
-            # Apply memory limits
-            if upscaled_width > max_upscaled_width:
-                upscaled_width = max_upscaled_width
-            if upscaled_height > max_upscaled_height:
-                upscaled_height = max_upscaled_height
-                
+            # Cap upscaled resolution to 1280x720 (multiple of 8)
+            max_upscaled_width = 1280
+            max_upscaled_height = 720
+            upscaled_height = min(round_to_multiple(downscaled_height * 2), max_upscaled_height)
+            upscaled_width = min(round_to_multiple(downscaled_width * 2), max_upscaled_width)
             logger.info(f"[Worker] Upscaled dimensions: {upscaled_width}x{upscaled_height}")
             upscaled_latents = pipe_upsample(
                 latents=latents,
@@ -214,13 +214,17 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
             ).frames
             logger.info(f"[Worker] Latents shape after upsampling: {getattr(upscaled_latents, 'shape', 'unknown')}")
 
+            # Validate shape before denoising
+            expected_shape = (1, 128, 12, upscaled_height // 32, upscaled_width // 32)
+            if getattr(upscaled_latents, 'shape', None) != expected_shape:
+                logger.error(f"[Worker] Latents shape {getattr(upscaled_latents, 'shape', None)} does not match expected shape {expected_shape}. Aborting.")
+                update_progress(job_id, -1)
+                return None
+
             # Part 3. Denoise the upscaled video to improve texture
             update_progress(job_id, 90)
-            
-            # Clear GPU cache before denoising
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-                
             logger.info("[Worker] Denoising upscaled video")
             video_frames = pipe(
                 conditions=[condition1],
