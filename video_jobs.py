@@ -177,4 +177,10 @@ def worker_startup():
         logging.info("✅ RQ Worker ready to process jobs")
     else:
         logging.error("❌ RQ Worker failed to load models - will not be able to process jobs")
-        # Don't exit - let the worker start but it won't be able to process jobs 
+        # Don't exit - let the worker start but it won't be able to process jobs
+
+# RQ Worker startup hook - this is called automatically by RQ
+def worker_boot_hook(worker):
+    """RQ worker boot hook - called when worker starts"""
+    logging.info("🚀 RQ Worker boot hook - loading models...")
+    worker_startup() 

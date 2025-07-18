@@ -76,7 +76,7 @@ trap cleanup SIGINT SIGTERM
 
 # Start RQ worker in background
 echo "   Starting RQ worker..."
-python3 worker.py &
+rq worker video-jobs --boot-hook video_jobs.worker_boot_hook &
 WORKER_PID=$!
 
 # Wait a moment for worker to start loading models
