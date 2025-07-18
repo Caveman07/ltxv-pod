@@ -23,13 +23,13 @@ A lightweight video generation service using the official Lightricks LTX Video m
 
 ### RunPod Deployment
 
-When deploying on RunPod, the container is started with a special script that ensures the latest code and models are pulled, dependencies are installed, and the production server is started. This is different from local development, where you use the Makefile.
+When deploying on RunPod, the container is started with a special script that ensures the latest code and models are pulled, dependencies are installed, Redis is running, and the production server and RQ worker are started. This is different from local development, where you use the Makefile.
 
 **RunPod Container Start Command:**
 
 ```bash
 bash -c "
-apt update && apt install -y git git-lfs nano ffmpeg;
+apt update && apt install -y git git-lfs nano ffmpeg redis-server;
 git lfs install;
 
 cd /workspace;
@@ -51,12 +51,20 @@ mkdir -p /app
 touch /app/app.log
 chmod 666 /app/app.log
 
+# Start Redis server in the background
+redis-server --daemonize yes;
+sleep 2;
+redis-cli ping;
+
+# Start RQ worker in the background
+rq worker video-jobs &
+
 chmod +x scripts/start-prod.sh;
 ./scripts/start-prod.sh
 "
 ```
 
-- This script will always pull the latest code and models, install dependencies, and start the production server.
+- This script will always pull the latest code and models, install dependencies, start Redis, start the RQ worker, and start the production server.
 - For **local development or CI**, use the `Makefile` commands (see the [Development & Automation](#development--automation) section).
 
 ### Installation

@@ -10,12 +10,20 @@ import io
 import tempfile
 import uuid
 from pathlib import Path
+from rq import Queue
+from rq.job import Job
+from redis import Redis
+import time
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+
+# Redis connection and RQ queue
+redis_conn = Redis(host=os.environ.get('REDIS_HOST', 'localhost'), port=int(os.environ.get('REDIS_PORT', 6379)), db=0)
+q = Queue('video-jobs', connection=redis_conn)
 
 # Global variables for models
 pipe = None
@@ -70,78 +78,46 @@ def round_to_nearest_resolution_acceptable_by_vae(height, width):
     width = round_to_multiple(width, base)
     return height, width
 
-@app.route('/health', methods=['GET'])
-def health_check():
-    """Health check endpoint"""
-    if pipe is None or pipe_upsample is None:
-        return jsonify({"status": "error", "message": "Models not loaded"}), 503
-    
-    return jsonify({
-        "status": "healthy",
-        "models_loaded": True,
-        "device": str(pipe.device)
-    })
-
-@app.route('/generate', methods=['POST'])
-def generate_video():
-    """Generate video from image or video input"""
+# --- ASYNC JOB WORKER FUNCTION ---
+def video_generation_worker(params, file_bytes, file_name):
+    """Worker function to generate video and save to temp file. Returns output path."""
     try:
-        if pipe is None or pipe_upsample is None:
-            return jsonify({"error": "Models not loaded"}), 503
+        # Unpack params
+        prompt = params.get('prompt', '')
+        negative_prompt = params.get('negative_prompt', 'worst quality, inconsistent motion, blurry, jittery, distorted')
+        num_frames = int(params.get('num_frames', 96))
+        num_inference_steps = int(params.get('num_inference_steps', 30))
+        expected_height = int(params.get('height', 480))
+        expected_width = int(params.get('width', 832))
+        downscale_factor = float(params.get('downscale_factor', 2/3))
+        seed = int(params.get('seed', 0))
 
-        # Use form data, not JSON
-        data = request.form
-        if not data:
-            return jsonify({"error": "No form data provided"}), 400
-
-        # Extract parameters
-        prompt = data.get('prompt', '')
-        if not prompt:
-            return jsonify({"error": "No prompt provided"}), 400
-        negative_prompt = data.get('negative_prompt', 'worst quality, inconsistent motion, blurry, jittery, distorted')
-        num_frames = int(data.get('num_frames', 96))
-        num_inference_steps = int(data.get('num_inference_steps', 30))
-        expected_height = int(data.get('height', 480))
-        expected_width = int(data.get('width', 832))
-        downscale_factor = float(data.get('downscale_factor', 2/3))
-        seed = int(data.get('seed', 0))
-
-        # Calculate dimensions (always round to multiple of 8)
+        # Calculate dimensions
         downscaled_height = round_to_multiple(expected_height * downscale_factor)
         downscaled_width = round_to_multiple(expected_width * downscale_factor)
         downscaled_height, downscaled_width = round_to_nearest_resolution_acceptable_by_vae(downscaled_height, downscaled_width)
-        logger.info(f"Downscaled dimensions: {downscaled_width}x{downscaled_height}")
+        logger.info(f"[Worker] Downscaled dimensions: {downscaled_width}x{downscaled_height}")
 
-        # Handle input file
-        if 'file' not in request.files or request.files['file'].filename == '':
-            return jsonify({"error": "No file provided"}), 400
-
-        file = request.files['file']
-
-        # Save uploaded file temporarily
-        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tmp_file:
-            file.save(tmp_file.name)
+        # Save uploaded file to temp
+        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file_name).suffix) as tmp_file:
+            tmp_file.write(file_bytes)
             input_path = tmp_file.name
 
         try:
-            # Determine if input is image or video based on file extension
-            file_ext = Path(file.filename).suffix.lower()
+            file_ext = Path(file_name).suffix.lower()
             is_image = file_ext in ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp']
-
             if is_image:
-                # Image-to-video generation
-                logger.info("Processing image-to-video generation")
+                logger.info("[Worker] Processing image-to-video generation")
                 image = load_image(input_path)
-                video = load_video(export_to_video([image]))  # compress image using video compression
+                video = load_video(export_to_video([image]))
                 condition1 = LTXVideoCondition(video=video, frame_index=0)
             else:
-                # Video-to-video generation
-                logger.info("Processing video-to-video generation")
-                video = load_video(input_path)[:21]  # Use first 21 frames
+                logger.info("[Worker] Processing video-to-video generation")
+                video = load_video(input_path)[:21]
                 condition1 = LTXVideoCondition(video=video, frame_index=0)
 
             # Part 1. Generate video at smaller resolution
-            logger.info(f"Generating video at {downscaled_width}x{downscaled_height}")
+            logger.info(f"[Worker] Generating video at {downscaled_width}x{downscaled_height}")
             latents = pipe(
                 conditions=[condition1],
                 prompt=prompt,
@@ -153,20 +129,20 @@ def generate_video():
                 generator=torch.Generator().manual_seed(seed),
                 output_type="latent",
             ).frames
-            logger.info(f"Latents shape after base generation: {getattr(latents, 'shape', 'unknown')}")
+            logger.info(f"[Worker] Latents shape after base generation: {getattr(latents, 'shape', 'unknown')}")
 
             # Part 2. Upscale generated video using latent upsampler
             upscaled_height = round_to_multiple(downscaled_height * 2)
             upscaled_width = round_to_multiple(downscaled_width * 2)
-            logger.info(f"Upscaled dimensions: {upscaled_width}x{upscaled_height}")
+            logger.info(f"[Worker] Upscaled dimensions: {upscaled_width}x{upscaled_height}")
             upscaled_latents = pipe_upsample(
                 latents=latents,
                 output_type="latent"
             ).frames
-            logger.info(f"Latents shape after upsampling: {getattr(upscaled_latents, 'shape', 'unknown')}")
+            logger.info(f"[Worker] Latents shape after upsampling: {getattr(upscaled_latents, 'shape', 'unknown')}")
 
             # Part 3. Denoise the upscaled video to improve texture
-            logger.info("Denoising upscaled video")
+            logger.info("[Worker] Denoising upscaled video")
             video_frames = pipe(
                 conditions=[condition1],
                 prompt=prompt,
@@ -174,7 +150,7 @@ def generate_video():
                 width=upscaled_width,
                 height=upscaled_height,
                 num_frames=num_frames,
-                denoise_strength=0.4,  # 4 inference steps out of 10
+                denoise_strength=0.4,
                 num_inference_steps=10,
                 latents=upscaled_latents,
                 decode_timestep=0.05,
@@ -182,35 +158,90 @@ def generate_video():
                 generator=torch.Generator().manual_seed(seed),
                 output_type="pil",
             ).frames[0]
-            logger.info(f"Video frames after denoising: {len(video_frames)} frames, size: {video_frames[0].size if video_frames else 'unknown'}")
+            logger.info(f"[Worker] Video frames after denoising: {len(video_frames)} frames, size: {video_frames[0].size if video_frames else 'unknown'}")
 
             # Part 4. Downscale to expected resolution
-            logger.info(f"Resizing to final resolution {expected_width}x{expected_height}")
+            logger.info(f"[Worker] Resizing to final resolution {expected_width}x{expected_height}")
             video_frames = [frame.resize((expected_width, expected_height)) for frame in video_frames]
 
             # Export video
             output_filename = f"output_{uuid.uuid4().hex[:8]}.mp4"
             output_path = os.path.join(tempfile.gettempdir(), output_filename)
             export_to_video(video_frames, output_path, fps=24)
-
-            logger.info(f"✅ Video generated successfully: {output_path}")
-
-            # Return video file
-            return send_file(
-                output_path,
-                mimetype='video/mp4',
-                as_attachment=True,
-                download_name=output_filename
-            )
-
+            logger.info(f"[Worker] ✅ Video generated successfully: {output_path}")
+            return output_path
         finally:
-            # Clean up temporary input file
             if os.path.exists(input_path):
                 os.unlink(input_path)
-
     except Exception as e:
-        logger.error(f"❌ Error generating video: {str(e)}")
+        logger.error(f"[Worker] ❌ Error generating video: {str(e)}")
+        return None
+
+# --- ASYNC ENDPOINTS ---
+@app.route('/generate', methods=['POST'])
+def generate_video_async():
+    """Enqueue video generation job and return job_id."""
+    try:
+        if pipe is None or pipe_upsample is None:
+            return jsonify({"error": "Models not loaded"}), 503
+        data = request.form
+        if not data:
+            return jsonify({"error": "No form data provided"}), 400
+        prompt = data.get('prompt', '')
+        if not prompt:
+            return jsonify({"error": "No prompt provided"}), 400
+        if 'file' not in request.files or request.files['file'].filename == '':
+            return jsonify({"error": "No file provided"}), 400
+        file = request.files['file']
+        file_bytes = file.read()
+        file_name = file.filename
+        params = dict(data)
+        job = q.enqueue(video_generation_worker, params, file_bytes, file_name, job_timeout=7200)
+        logger.info(f"Enqueued job {job.id}")
+        return jsonify({"job_id": job.id, "status": "queued"}), 202
+    except Exception as e:
+        logger.error(f"❌ Error enqueuing video job: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
+@app.route('/status/<job_id>', methods=['GET'])
+def job_status(job_id):
+    try:
+        job = Job.fetch(job_id, connection=redis_conn)
+        if job.is_finished:
+            return jsonify({"job_id": job_id, "status": "done"})
+        elif job.is_failed:
+            return jsonify({"job_id": job_id, "status": "failed", "error": str(job.exc_info)})
+        elif job.is_started:
+            return jsonify({"job_id": job_id, "status": "processing"})
+        else:
+            return jsonify({"job_id": job_id, "status": "queued"})
+    except Exception as e:
+        return jsonify({"job_id": job_id, "status": "unknown", "error": str(e)})
+
+@app.route('/result/<job_id>', methods=['GET'])
+def job_result(job_id):
+    try:
+        job = Job.fetch(job_id, connection=redis_conn)
+        if not job.is_finished or not job.result:
+            return jsonify({"error": "Result not ready"}), 404
+        output_path = job.result
+        if not os.path.exists(output_path):
+            return jsonify({"error": "Output file not found"}), 404
+        return send_file(output_path, mimetype='video/mp4', as_attachment=True, download_name=os.path.basename(output_path))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Health check endpoint"""
+    if pipe is None or pipe_upsample is None:
+        return jsonify({"status": "error", "message": "Models not loaded"}), 503
+    
+    return jsonify({
+        "status": "healthy",
+        "models_loaded": True,
+        "device": str(pipe.device)
+    })
 
 @app.route('/models', methods=['GET'])
 def list_models():
