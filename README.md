@@ -25,6 +25,15 @@ A lightweight video generation service using the official Lightricks LTX Video m
 
 When deploying on RunPod, the container is started with a special script that ensures the latest code and models are pulled, dependencies are installed, Redis is running, and the production server and RQ worker are started. This is different from local development, where you use the Makefile.
 
+**GPU Memory Management:**
+
+- The startup script now automatically attempts to clear any previous GPU memory allocations and sets the PyTorch memory configuration to help prevent CUDA out-of-memory errors and memory fragmentation. This is done by:
+  - Running `nvidia-smi --gpu-reset` (if supported)
+  - Setting `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`
+  - Running `python -c "import torch; torch.cuda.empty_cache()"`
+
+You do not need to do anything extra—this is handled automatically when you use the provided scripts.
+
 **RunPod Container Start Command:**
 
 ```bash
@@ -89,11 +98,14 @@ chmod +x scripts/start-prod.sh;
    - `requirements-dev.txt` contains all development and testing tools (pytest, flake8, black, etc).
 
 3. **Start the service**:
+
    ```bash
    make run-dev
    # or
    # chmod +x scripts/start.sh && ./scripts/start.sh
    ```
+
+   - The startup script will attempt to clear any previous GPU memory allocations and set PyTorch memory config to help prevent CUDA OOM errors. This is automatic.
 
 The first run will automatically download and cache the required models:
 
