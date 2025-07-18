@@ -33,8 +33,8 @@ def wait_for_job_done(session, base_url, job_id, timeout=900, poll_interval=5):
         print(f"Job {job_id} status: {status}, progress: {progress}%")
         assert progress >= last_progress, "Progress did not increase or stay the same"
         last_progress = progress
-        if status == "done":
-            assert progress == 100, "Progress should be 100 when done"
+        if status == "completed":
+            assert progress == 100, "Progress should be 100 when completed"
             return True
         if status == "failed":
             raise Exception(f"Job failed: {data.get('error')}")
