@@ -63,11 +63,10 @@ def round_to_nearest_resolution_acceptable_by_vae(height, width):
 def video_generation_worker(params, file_bytes, file_name):
     global pipe, pipe_upsample
     
-    # Load models if not already loaded (this happens once per worker process)
+    # Models should already be loaded on worker startup, but check just in case
     if pipe is None or pipe_upsample is None:
-        if not load_models():
-            logging.error("❌ Failed to load models in worker. Cannot process job.")
-            return None
+        logging.error("❌ Models not loaded. Worker may not have started properly.")
+        return None
     
     job = get_current_job()
     try:
@@ -168,4 +167,14 @@ def video_generation_worker(params, file_bytes, file_name):
         job.meta['progress'] = -1
         job.save_meta()
         logging.error(f"[Worker] ❌ Error generating video: {str(e)}")
-        return None 
+        return None
+
+# RQ Worker startup function - this will be called when the worker starts
+def worker_startup():
+    """Load models when RQ worker starts"""
+    logging.info("🚀 RQ Worker starting - loading models...")
+    if load_models():
+        logging.info("✅ RQ Worker ready to process jobs")
+    else:
+        logging.error("❌ RQ Worker failed to load models - will not be able to process jobs")
+        # Don't exit - let the worker start but it won't be able to process jobs 
