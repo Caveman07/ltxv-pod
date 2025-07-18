@@ -33,7 +33,7 @@ format: ## Format code
 	isort src/ tests/
 
 run-dev: ## Run development server
-	./scripts/start-dev.sh
+	python app.py
 
 run-prod: ## Run production server
 	gunicorn app:app --bind 0.0.0.0:8000 --workers 4
