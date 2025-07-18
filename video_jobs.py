@@ -51,6 +51,10 @@ def video_generation_worker(params, file_bytes, file_name, job_id=None, progress
         downscaled_height, downscaled_width = round_to_nearest_resolution_acceptable_by_vae(downscaled_height, downscaled_width)
         logging.info(f"[Worker] Downscaled dimensions: {downscaled_width}x{downscaled_height}")
 
+        # Update progress to 5% - Starting
+        if progress_callback and job_id:
+            progress_callback(job_id, 5)
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file_name).suffix) as tmp_file:
             tmp_file.write(file_bytes)
             input_path = tmp_file.name
@@ -68,11 +72,16 @@ def video_generation_worker(params, file_bytes, file_name, job_id=None, progress
                 video = load_video(input_path)[:21]
                 condition1 = LTXVideoCondition(video=video, frame_index=0)
 
-            # Update progress to 30%
+            # Update progress to 10% - Input processed
             if progress_callback and job_id:
-                progress_callback(job_id, 30)
+                progress_callback(job_id, 10)
 
             logging.info(f"[Worker] Generating video at {downscaled_width}x{downscaled_height}")
+            
+            # Update progress to 15% - Starting base generation
+            if progress_callback and job_id:
+                progress_callback(job_id, 15)
+            
             latents = pipe(
                 conditions=[condition1],
                 prompt=prompt,
@@ -86,24 +95,34 @@ def video_generation_worker(params, file_bytes, file_name, job_id=None, progress
             ).frames
             logging.info(f"[Worker] Latents shape after base generation: {getattr(latents, 'shape', 'unknown')}")
 
-            # Update progress to 60%
+            # Update progress to 50% - Base generation complete
             if progress_callback and job_id:
-                progress_callback(job_id, 60)
+                progress_callback(job_id, 50)
 
             upscaled_height = round_to_multiple(downscaled_height * 2)
             upscaled_width = round_to_multiple(downscaled_width * 2)
             logging.info(f"[Worker] Upscaled dimensions: {upscaled_width}x{upscaled_height}")
+            
+            # Update progress to 55% - Starting upsampling
+            if progress_callback and job_id:
+                progress_callback(job_id, 55)
+            
             upscaled_latents = pipe_upsample(
                 latents=latents,
                 output_type="latent"
             ).frames
             logging.info(f"[Worker] Latents shape after upsampling: {getattr(upscaled_latents, 'shape', 'unknown')}")
 
-            # Update progress to 90%
+            # Update progress to 70% - Upsampling complete
             if progress_callback and job_id:
-                progress_callback(job_id, 90)
+                progress_callback(job_id, 70)
 
             logging.info("[Worker] Denoising upscaled video")
+            
+            # Update progress to 75% - Starting denoising
+            if progress_callback and job_id:
+                progress_callback(job_id, 75)
+            
             video_frames = pipe(
                 conditions=[condition1],
                 prompt=prompt,
@@ -121,7 +140,16 @@ def video_generation_worker(params, file_bytes, file_name, job_id=None, progress
             ).frames[0]
             logging.info(f"[Worker] Video frames after denoising: {len(video_frames)} frames, size: {video_frames[0].size if video_frames else 'unknown'}")
 
+            # Update progress to 90% - Denoising complete
+            if progress_callback and job_id:
+                progress_callback(job_id, 90)
+
             logging.info(f"[Worker] Resizing to final resolution {expected_width}x{expected_height}")
+            
+            # Update progress to 95% - Starting final processing
+            if progress_callback and job_id:
+                progress_callback(job_id, 95)
+            
             video_frames = [frame.resize((expected_width, expected_height)) for frame in video_frames]
 
             output_filename = f"output_{uuid.uuid4().hex[:8]}.mp4"
