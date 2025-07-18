@@ -252,6 +252,8 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
             logger.info(f"[Worker] Final upscaled dimensions: {upscaled_width}x{upscaled_height}")
             upscaled_latents = pipe_upsample(
                 latents=latents,
+                width=upscaled_width,
+                height=upscaled_height,
                 output_type="latent"
             ).frames
             logger.info(f"[Worker] Latents shape after upsampling: {getattr(upscaled_latents, 'shape', 'unknown')}")
