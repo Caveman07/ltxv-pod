@@ -48,11 +48,20 @@ else
     echo "⚠️ No NVIDIA GPU detected, will use CPU (this will be very slow)"
 fi
 
+# GPU memory management: clear previous allocations and set PyTorch config
+if command -v nvidia-smi &> /dev/null; then
+    echo "🧹 Clearing GPU memory allocations (if any)..."
+    nvidia-smi --gpu-reset || echo "⚠️ GPU reset not supported on this device. Skipping."
+    export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+    python3 -c "import torch; torch.cuda.empty_cache()" || true
+fi
+
 # Set environment variables
 export PYTHONPATH="${PYTHONPATH}:$(pwd)"
 export HF_HOME="${HF_HOME:-$(pwd)/.cache/huggingface}"
 export TRANSFORMERS_CACHE="${TRANSFORMERS_CACHE:-$(pwd)/.cache/huggingface/transformers}"
 export HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-$(pwd)/.cache/huggingface/datasets}"
+export PORT="${PORT:-8000}"
 
 # Create cache directories
 mkdir -p .cache/huggingface/transformers
@@ -63,10 +72,12 @@ echo "   HF_HOME: $HF_HOME"
 echo "   TRANSFORMERS_CACHE: $TRANSFORMERS_CACHE"
 echo "   HF_DATASETS_CACHE: $HF_DATASETS_CACHE"
 
-echo "🔧 Starting LTX Video Pod with official diffusers approach..."
-echo "   Models will be automatically downloaded and cached on first run"
+echo "🔧 Starting LTX Video Pod Flask app..."
+echo "   Models are loaded by the RQ worker process (started separately)"
 echo "   Base model: Lightricks/LTX-Video-0.9.7-dev"
 echo "   Upscaler: Lightricks/ltxv-spatial-upscaler-0.9.7"
+echo "   Port: $PORT"
+echo "   Note: Ensure RQ worker is running to process video generation jobs"
 
-# Start the application
+# Start the Flask application (models loaded by RQ worker)
 python3 app.py 

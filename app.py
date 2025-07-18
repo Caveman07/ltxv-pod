@@ -27,7 +27,7 @@ app = Flask(__name__)
 redis_conn = Redis(host=os.environ.get('REDIS_HOST', 'localhost'), port=int(os.environ.get('REDIS_PORT', 6379)), db=0)
 q = Queue('video-jobs', connection=redis_conn)
 
-# Global variables for models
+# Global variables for models - NOT loaded in Flask app
 pipe = None
 pipe_upsample = None
 
@@ -64,11 +64,9 @@ def load_models():
         logger.error(f"❌ Failed to load models: {str(e)}")
         return False
 
-# Load models when app is created (for gunicorn compatibility)
-if not load_models():
-    logger.error("Failed to load models during app initialization.")
-    # Don't exit here as gunicorn needs the app to start
-set_pipes(pipe, pipe_upsample)
+# DO NOT load models in Flask app - let RQ worker handle this
+# This prevents double loading and GPU memory exhaustion
+logger.info("🚀 Flask app starting - models will be loaded by RQ worker process")
 
 def round_to_multiple(x, base=8):
     """Round up to the nearest multiple of base (default 8)"""
@@ -89,8 +87,10 @@ def round_to_nearest_resolution_acceptable_by_vae(height, width):
 def generate_video_async():
     """Enqueue video generation job and return job_id."""
     try:
-        if pipe is None or pipe_upsample is None:
-            return jsonify({"error": "Models not loaded"}), 503
+        # Check if RQ worker is available (models will be loaded by worker)
+        if not redis_conn.ping():
+            return jsonify({"error": "Redis connection failed"}), 503
+            
         data = request.form
         if not data:
             return jsonify({"error": "No form data provided"}), 400
@@ -153,39 +153,40 @@ def job_result(job_id):
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
-    if pipe is None or pipe_upsample is None:
-        return jsonify({"status": "error", "message": "Models not loaded"}), 503
-    
-    return jsonify({
-        "status": "healthy",
-        "models_loaded": True,
-        "device": str(pipe.device)
-    })
+    # Check Redis connection instead of model loading
+    try:
+        redis_conn.ping()
+        return jsonify({
+            "status": "healthy",
+            "redis_connected": True,
+            "models_loaded_by_worker": "Check /models endpoint for worker status"
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Redis connection failed: {str(e)}"}), 503
 
 @app.route('/models', methods=['GET'])
 def list_models():
     """List available models and their status"""
+    # Models are loaded by RQ worker, not Flask app
     return jsonify({
         "models": {
             "ltx_video": {
                 "name": "Lightricks/LTX-Video-0.9.7-dev",
-                "loaded": pipe is not None,
+                "loaded_by": "RQ worker process",
                 "type": "base_pipeline"
             },
             "ltx_upscaler": {
                 "name": "Lightricks/ltxv-spatial-upscaler-0.9.7",
-                "loaded": pipe_upsample is not None,
+                "loaded_by": "RQ worker process",
                 "type": "upscaler_pipeline"
             }
         },
-        "device": str(pipe.device) if pipe else "unknown"
+        "note": "Models are loaded by the RQ worker process to avoid GPU memory conflicts"
     })
 
 if __name__ == '__main__':
-    # Load models on startup
-    if not load_models():
-        logger.error("Failed to load models. Exiting.")
-        exit(1)
+    # DO NOT load models in Flask app - let RQ worker handle this
+    logger.info("🚀 Starting Flask app without model loading (models loaded by RQ worker)")
     
     # Run the Flask app
     port = int(os.environ.get('PORT', 8000))  # Changed default from 5000 to 8000

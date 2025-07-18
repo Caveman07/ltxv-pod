@@ -73,11 +73,12 @@ echo "   HF_HOME: $HF_HOME"
 echo "   TRANSFORMERS_CACHE: $TRANSFORMERS_CACHE"
 echo "   HF_DATASETS_CACHE: $HF_DATASETS_CACHE"
 
-echo "🔧 Starting LTX Video Pod with official diffusers approach..."
-echo "   Models will be automatically downloaded and cached on first run"
+echo "🔧 Starting LTX Video Pod Flask app (production mode)..."
+echo "   Models are loaded by the RQ worker process (started separately)"
 echo "   Base model: Lightricks/LTX-Video-0.9.7-dev"
 echo "   Upscaler: Lightricks/ltxv-spatial-upscaler-0.9.7"
 echo "   Port: $PORT"
+echo "   Note: Ensure RQ worker is running to process video generation jobs"
 
-# Start the application with Flask built-in server
+# Start the Flask application (models loaded by RQ worker)
 python3 app.py 

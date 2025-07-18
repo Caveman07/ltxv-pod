@@ -9,9 +9,42 @@ from diffusers import LTXConditionPipeline, LTXLatentUpsamplePipeline
 from diffusers.pipelines.ltx.pipeline_ltx_condition import LTXVideoCondition
 from diffusers.utils import export_to_video, load_image, load_video
 
-# These should be initialized in app.py and imported here
+# Global variables for models - loaded by RQ worker
 pipe = None
 pipe_upsample = None
+
+def load_models():
+    """Load LTX Video models using official diffusers approach with caching"""
+    global pipe, pipe_upsample
+    
+    try:
+        logging.info("Loading LTX Video models from HuggingFace with caching...")
+        
+        # Load base pipeline - this will download and cache the model automatically
+        pipe = LTXConditionPipeline.from_pretrained(
+            "Lightricks/LTX-Video-0.9.7-dev", 
+            torch_dtype=torch.bfloat16
+        )
+        
+        # Load upscaler pipeline - this will download and cache the model automatically
+        pipe_upsample = LTXLatentUpsamplePipeline.from_pretrained(
+            "Lightricks/ltxv-spatial-upscaler-0.9.7", 
+            vae=pipe.vae, 
+            torch_dtype=torch.bfloat16
+        )
+        
+        # Move to GPU if available
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        pipe.to(device)
+        pipe_upsample.to(device)
+        pipe.vae.enable_tiling()
+        
+        logging.info(f"✅ Models loaded successfully on {device}")
+        return True
+        
+    except Exception as e:
+        logging.error(f"❌ Failed to load models: {str(e)}")
+        return False
 
 def set_pipes(p, p_upsample):
     global pipe, pipe_upsample
@@ -28,6 +61,14 @@ def round_to_nearest_resolution_acceptable_by_vae(height, width):
     return height, width
 
 def video_generation_worker(params, file_bytes, file_name):
+    global pipe, pipe_upsample
+    
+    # Load models if not already loaded (this happens once per worker process)
+    if pipe is None or pipe_upsample is None:
+        if not load_models():
+            logging.error("❌ Failed to load models in worker. Cannot process job.")
+            return None
+    
     job = get_current_job()
     try:
         job.meta['progress'] = 5
