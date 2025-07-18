@@ -153,11 +153,13 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
         logger.info(f"[Worker] Downscaled dimensions: {downscaled_width}x{downscaled_height}")
 
         # Save uploaded file to temp
+        logger.info(f"[Worker] Writing {len(file_bytes)} bytes to temp file for {file_name}")
         with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file_name).suffix) as tmp_file:
             tmp_file.write(file_bytes)
             tmp_file.flush()  # Ensure data is written to disk
             os.fsync(tmp_file.fileno())  # Force sync to disk
             input_path = tmp_file.name
+            logger.info(f"[Worker] Temp file created: {input_path}")
 
         # Validate input file before processing (with retry for race conditions)
         max_retries = 3
@@ -296,6 +298,14 @@ def generate_video_async():
         file = request.files['file']
         file_bytes = file.read()
         file_name = file.filename
+        
+        # Debug: Log file upload details
+        logger.info(f"[Upload] Received file: {file_name}, size: {len(file_bytes)} bytes")
+        
+        if len(file_bytes) == 0:
+            logger.error(f"[Upload] File is empty: {file_name}")
+            return jsonify({"error": "Uploaded file is empty"}), 400
+            
         params = dict(data)
         
         # Generate unique job ID
