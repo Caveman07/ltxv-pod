@@ -87,7 +87,8 @@ sleep 2;
 redis-cli ping;
 
 # Start RQ worker in the background (ONLY ONE WORKER)
-python3 worker.py &
+# The worker will automatically load models on startup via boot hook
+rq worker video-jobs --boot-hook video_jobs.worker_boot_hook &
 
 chmod +x scripts/start-prod.sh;
 ./scripts/start-prod.sh
@@ -140,7 +141,7 @@ chmod +x scripts/start-prod.sh;
 
    # Option 2: Manual start (two terminals required)
    # Terminal 1: Start RQ worker (loads models - takes ~5 minutes)
-   python3 worker.py
+   rq worker video-jobs --boot-hook video_jobs.worker_boot_hook
 
    # Terminal 2: Start Flask app
    python3 app.py
