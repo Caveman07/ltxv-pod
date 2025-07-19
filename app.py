@@ -266,6 +266,23 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
                 actual_height = min(raw_actual_height, max_upscaled_height)
                 actual_width = min(raw_actual_width, max_upscaled_width)
                 logger.info(f"[Worker] Memory-limited actual dimensions: {actual_width}x{actual_height}")
+                
+                # Resize latents to match target dimensions if needed
+                target_latent_height = actual_height // 32
+                target_latent_width = actual_width // 32
+                current_latent_height = upscaled_latents.shape[-2]
+                current_latent_width = upscaled_latents.shape[-1]
+                
+                if current_latent_height != target_latent_height or current_latent_width != target_latent_width:
+                    logger.info(f"[Worker] Resizing latents from {current_latent_width}x{current_latent_height} to {target_latent_width}x{target_latent_height}")
+                    # Use interpolation to resize latents
+                    upscaled_latents = torch.nn.functional.interpolate(
+                        upscaled_latents.squeeze(0),  # Remove batch dimension
+                        size=(target_latent_height, target_latent_width),
+                        mode='bilinear',
+                        align_corners=False
+                    ).unsqueeze(0)  # Add batch dimension back
+                    logger.info(f"[Worker] Latents shape after resizing: {getattr(upscaled_latents, 'shape', 'unknown')}")
             else:
                 actual_height = upscaled_height
                 actual_width = upscaled_width
