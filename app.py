@@ -258,9 +258,14 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
             
             # Calculate actual dimensions from upsampled latents
             if hasattr(upscaled_latents, 'shape') and len(upscaled_latents.shape) >= 4:
-                actual_height = upscaled_latents.shape[-2] * 32  # Convert latent space to pixel space
-                actual_width = upscaled_latents.shape[-1] * 32
-                logger.info(f"[Worker] Actual upsampled dimensions from latents: {actual_width}x{actual_height}")
+                raw_actual_height = upscaled_latents.shape[-2] * 32  # Convert latent space to pixel space
+                raw_actual_width = upscaled_latents.shape[-1] * 32
+                logger.info(f"[Worker] Raw actual dimensions from latents: {raw_actual_width}x{raw_actual_height}")
+                
+                # Apply memory limits to actual dimensions
+                actual_height = min(raw_actual_height, max_upscaled_height)
+                actual_width = min(raw_actual_width, max_upscaled_width)
+                logger.info(f"[Worker] Memory-limited actual dimensions: {actual_width}x{actual_height}")
             else:
                 actual_height = upscaled_height
                 actual_width = upscaled_width
