@@ -55,10 +55,10 @@ if os.path.exists(CACHE_DIR):
 with open(CONFIG_PATH, "r") as f:
     ltx_config = yaml.safe_load(f)
 defaults = {
-    "num_inference_steps": ltx_config["first_pass"]["num_inference_steps"],
+    "num_inference_steps": 30,  # Not present in YAML, set a sensible default
     "decode_timestep": ltx_config.get("decode_timestep", 0.05),
     "decode_noise_scale": ltx_config.get("decode_noise_scale", 0.025),
-    "guidance_scale": ltx_config["first_pass"]["guidance_scale"],
+    "guidance_scale": ltx_config.get("first_pass", {}).get("guidance_scale", 1),
     # Add more as needed
 }
 
