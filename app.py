@@ -2,7 +2,7 @@ import os
 import logging
 import torch
 from flask import Flask, request, jsonify, send_file
-from diffusers import LTXPipeline, LTXUpscalePipeline
+from diffusers import LTXPipeline, LTXLatentUpsamplePipeline
 from diffusers.pipelines.ltx.pipeline_ltx_condition import LTXVideoCondition
 from diffusers.utils import export_to_video, load_image, load_video
 from PIL import Image
@@ -39,7 +39,7 @@ pipe = None
 pipe_upsample = None
 
 MODEL_NAME = "Lightricks/LTX-Video-0.9.8-dev"
-UPSCALE_MODEL_NAME = "Lightricks/LTX-Upscale-0.9.8-dev"
+UPSCALE_MODEL_NAME = "Lightricks/ltxv-spatial-upscaler-0.9.7"
 CONFIG_PATH = "configs/ltxv-13b-0.9.8-dev.yaml"
 
 # Clean up cache if old model is loaded
@@ -70,7 +70,7 @@ def load_models():
         )
         
         # Load upscaler pipeline - this will download and cache the model automatically
-        pipe_upsample = LTXUpscalePipeline.from_pretrained(
+        pipe_upsample = LTXLatentUpsamplePipeline.from_pretrained(
             UPSCALE_MODEL_NAME,
             vae=pipe.vae,
             torch_dtype=torch.float16
@@ -519,12 +519,12 @@ def list_models():
     return jsonify({
         "models": {
             "ltx_video": {
-                "name": "Lightricks/LTX-Video-0.9.7-dev",
+                "name": MODEL_NAME,
                 "loaded": pipe is not None,
                 "type": "base_pipeline"
             },
             "ltx_upscaler": {
-                "name": "Lightricks/ltxv-spatial-upscaler-0.9.7",
+                "name": UPSCALE_MODEL_NAME,
                 "loaded": pipe_upsample is not None,
                 "type": "upscaler_pipeline"
             }
