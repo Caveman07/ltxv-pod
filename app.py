@@ -40,7 +40,7 @@ pipe_upsample = None
 
 MODEL_NAME = "Lightricks/LTX-Video-0.9.8-13B-distilled"
 UPSCALE_MODEL_NAME = "Lightricks/ltxv-spatial-upscaler-0.9.7"
-CONFIG_PATH = "configs/ltxv-13b-0.9.8-dev.yaml"
+CONFIG_PATH = "configs/ltxv-13b-0.9.8-distilled.yaml"
 
 # Clean up cache if old model is loaded
 CACHE_DIR = os.path.expanduser("~/.cache/huggingface")
