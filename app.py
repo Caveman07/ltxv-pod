@@ -2,7 +2,8 @@ import os
 import logging
 import torch
 from flask import Flask, request, jsonify, send_file
-from diffusers import LTXPipeline, LTXLatentUpsamplePipeline
+from diffusers.pipelines.ltx import LTXPipeline
+from diffusers import LTXLatentUpsamplePipeline
 from diffusers.pipelines.ltx.pipeline_ltx_condition import LTXVideoCondition
 from diffusers.utils import export_to_video, load_image, load_video
 from PIL import Image
@@ -314,9 +315,9 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
             try:
                 guidance_scale = float(params.get('guidance_scale', defaults.get('guidance_scale', 1)))
                 # Debug: print the signature of the pipeline call
-                print(inspect.signature(pipe.__call__))
+                print(">>> PIPE CALL SIGNATURE:", inspect.signature(pipe.__call__))
                 base_result = pipe(
-                    video=video,
+                    conditions=[condition1],
                     prompt=prompt,
                     negative_prompt=negative_prompt,
                     width=downscaled_width,
