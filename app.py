@@ -12,6 +12,13 @@ import uuid
 from pathlib import Path
 import time
 import threading
+import gc  # For improved memory cleanup
+
+# Optional: Enable CPU offloading for large models to save VRAM
+USE_CPU_OFFLOAD = False  # Set to True to enable model CPU offloading
+
+# Optional: Enable manual latent resizing (not recommended, may introduce artifacts)
+ENABLE_LATENT_RESIZE = False  # Set to True to allow manual resizing of latents (not used in official pipelines)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
@@ -53,6 +60,12 @@ def load_models():
         pipe_upsample.to(device)
         pipe.vae.enable_tiling()
         
+        # Enable CPU offloading if requested
+        if USE_CPU_OFFLOAD:
+            pipe.enable_model_cpu_offload()
+            pipe_upsample.enable_model_cpu_offload()
+            logger.info("Enabled CPU offloading for models.")
+            
         logger.info(f"✅ Models loaded successfully on {device}")
         return True
         
@@ -140,7 +153,10 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
         prompt = params.get('prompt', '')
         negative_prompt = params.get('negative_prompt', 'worst quality, inconsistent motion, blurry, jittery, distorted')
         num_frames = int(params.get('num_frames', 96))
-        num_inference_steps = int(params.get('num_inference_steps', 50))  # Increased from 30
+        denoise_strength = float(params.get('denoise_strength', 0.4))  # Exposed for future use
+        decode_timestep = float(params.get('decode_timestep', 0.05))   # Exposed for future use
+        # Only num_frames is used directly; denoise_strength and decode_timestep are logged for advanced users
+        logger.info(f"[Worker] Using num_frames={num_frames}, denoise_strength={denoise_strength}, decode_timestep={decode_timestep}")
         expected_height = int(params.get('height', 720))  # Increased from 480
         expected_width = int(params.get('width', 1280))   # Increased from 832
         downscale_factor = float(params.get('downscale_factor', 0.8))  # Increased from 2/3 (0.67)
@@ -205,8 +221,14 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
             if is_image:
                 logger.info("[Worker] Processing image-to-video generation")
                 image = load_image(input_path)
-                video = load_video(export_to_video([image]))
-                condition1 = LTXVideoCondition(video=video, frame_index=0)
+                with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp_vid:
+                    export_to_video([image], temp_vid.name)
+                    video = load_video(temp_vid.name)
+                try:
+                    condition1 = LTXVideoCondition(video=video, frame_index=0)
+                finally:
+                    if os.path.exists(temp_vid.name):
+                        os.unlink(temp_vid.name)
             else:
                 logger.info("[Worker] Processing video-to-video generation")
                 video = load_video(input_path)[:21]
@@ -223,7 +245,7 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
                     width=downscaled_width,
                     height=downscaled_height,
                     num_frames=num_frames,
-                    num_inference_steps=num_inference_steps,
+                    num_inference_steps=num_frames, # Use num_frames for inference steps
                     generator=torch.Generator().manual_seed(seed),
                     output_type="latent",
                 )
@@ -238,7 +260,7 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
                 latents = base_result.frames
                 logger.info(f"[Worker] Latents shape after base generation: {getattr(latents, 'shape', 'unknown')}")
                 
-                if latents is None or (hasattr(latents, 'shape') and 0 in latents.shape):
+                if latents is None or latents.numel() == 0:
                     logger.error(f"[Worker] Base generation failed - invalid latents shape: {getattr(latents, 'shape', 'unknown')}")
                     update_progress(job_id, -1)
                     return None
@@ -248,10 +270,11 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
                 update_progress(job_id, -1)
                 return None
 
-            # Part 2. Upscale generated video using latent upsampler (with memory limits)
+            # Part 2. Upscale and denoise generated video using latent upsampler (with memory limits)
             update_progress(job_id, 60)
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+                gc.collect()
             # Cap upscaled resolution to 1280x704 (multiple of 32)
             max_upscaled_width = 1280  # 1280 is divisible by 32
             max_upscaled_height = 704  # 704 is divisible by 32 (22 * 32)
@@ -265,73 +288,18 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
             upscaled_height = round_to_multiple(target_upscaled_height, 32)
             upscaled_width = round_to_multiple(target_upscaled_width, 32)
             logger.info(f"[Worker] Final upscaled dimensions: {upscaled_width}x{upscaled_height}")
-            upscaled_latents = pipe_upsample(
+            
+            # Directly get denoised frames from upsampler
+            video_frames = pipe_upsample(
                 latents=latents,
-                output_type="latent"
-            ).frames
-            logger.info(f"[Worker] Latents shape after upsampling: {getattr(upscaled_latents, 'shape', 'unknown')}")
-
-            # Part 3. Denoise the upscaled video to improve texture
-            update_progress(job_id, 90)
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            
-            # Calculate actual dimensions from upsampled latents
-            if hasattr(upscaled_latents, 'shape') and len(upscaled_latents.shape) >= 4:
-                raw_actual_height = upscaled_latents.shape[-2] * 32  # Convert latent space to pixel space
-                raw_actual_width = upscaled_latents.shape[-1] * 32
-                logger.info(f"[Worker] Raw actual dimensions from latents: {raw_actual_width}x{raw_actual_height}")
-                
-                # Apply memory limits to actual dimensions
-                actual_height = min(raw_actual_height, max_upscaled_height)
-                actual_width = min(raw_actual_width, max_upscaled_width)
-                logger.info(f"[Worker] Memory-limited actual dimensions: {actual_width}x{actual_height}")
-                
-                # Resize latents to match target dimensions if needed
-                target_latent_height = actual_height // 32
-                target_latent_width = actual_width // 32
-                current_latent_height = upscaled_latents.shape[-2]
-                current_latent_width = upscaled_latents.shape[-1]
-                
-                if current_latent_height != target_latent_height or current_latent_width != target_latent_width:
-                    logger.info(f"[Worker] Resizing latents from {current_latent_width}x{current_latent_height} to {target_latent_width}x{target_latent_height}")
-                    # Use interpolation to resize latents
-                    upscaled_latents = torch.nn.functional.interpolate(
-                        upscaled_latents.squeeze(0),  # Remove batch dimension
-                        size=(target_latent_height, target_latent_width),
-                        mode='bilinear',
-                        align_corners=False
-                    ).unsqueeze(0)  # Add batch dimension back
-                    logger.info(f"[Worker] Latents shape after resizing: {getattr(upscaled_latents, 'shape', 'unknown')}")
-            else:
-                actual_height = upscaled_height
-                actual_width = upscaled_width
-                logger.warning(f"[Worker] Could not determine actual dimensions from latents, using target: {actual_width}x{actual_height}")
-            
-            logger.info("[Worker] Denoising upscaled video")
-            result = pipe(
-                conditions=[condition1],
-                prompt=prompt,
-                negative_prompt=negative_prompt,
-                width=actual_width,
-                height=actual_height,
-                num_frames=num_frames,
-                denoise_strength=0.4,
-                num_inference_steps=15,  # Reduced from 20 for memory efficiency while maintaining quality
-                latents=upscaled_latents,
-                decode_timestep=0.05,
-                image_cond_noise_scale=0.025,
-                generator=torch.Generator().manual_seed(seed),
                 output_type="pil",
+                num_frames=num_frames, # Pass num_frames to upsampler
+                denoise_strength=denoise_strength, # Pass denoise_strength to upsampler
+                decode_timestep=decode_timestep # Pass decode_timestep to upsampler
             ).frames
-            if not result or len(result) == 0:
-                logger.error("[Worker] No frames generated by the model!")
-                update_progress(job_id, -1)
-                return None
-            video_frames = result[0]
-            logger.info(f"[Worker] Video frames after denoising: {len(video_frames)} frames, size: {video_frames[0].size if video_frames else 'unknown'}")
+            logger.info(f"[Worker] Video frames after upsampling and denoising: {len(video_frames)} frames, size: {video_frames[0].size if video_frames else 'unknown'}")
 
-            # Part 4. Downscale to expected resolution
+            # Part 3. Downscale to expected resolution
             logger.info(f"[Worker] Resizing to final resolution {final_expected_width}x{final_expected_height}")
             video_frames = [frame.resize((final_expected_width, final_expected_height)) for frame in video_frames]
 
