@@ -220,7 +220,7 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
         # Unpack params with config fallback
         prompt = params.get('prompt', '')
         negative_prompt = params.get('negative_prompt', 'worst quality, inconsistent motion, blurry, jittery, distorted')
-        num_frames = int(params.get('num_frames', defaults.get('num_frames', 96)))
+        num_frames = int(params.get('num_frames', defaults.get('num_frames', 150)))
         denoise_strength = float(params.get('denoise_strength', 0.4))  # Not in config, keep as is
         decode_timestep = float(params.get('decode_timestep', defaults.get('decode_timestep', 0.05)))
         decode_noise_scale = float(params.get('decode_noise_scale', defaults.get('decode_noise_scale', 0.025)))
