@@ -294,6 +294,10 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
                 latents=latents,
                 output_type="pil"
             ).frames
+            # Flatten if needed (handle nested list output)
+            if video_frames and isinstance(video_frames[0], list):
+                video_frames = video_frames[0]
+
             logger.info(f"[Worker] Video frames after upsampling and denoising: {len(video_frames)} frames, size: {video_frames[0].size if video_frames else 'unknown'}")
 
             # Part 3. Downscale to expected resolution
