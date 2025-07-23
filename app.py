@@ -215,18 +215,38 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
             # Part 1. Generate video at smaller resolution
             update_progress(job_id, 30)
             logger.info(f"[Worker] Generating video at {downscaled_width}x{downscaled_height}")
-            latents = pipe(
-                conditions=[condition1],
-                prompt=prompt,
-                negative_prompt=negative_prompt,
-                width=downscaled_width,
-                height=downscaled_height,
-                num_frames=num_frames,
-                num_inference_steps=num_inference_steps,
-                generator=torch.Generator().manual_seed(seed),
-                output_type="latent",
-            ).frames
-            logger.info(f"[Worker] Latents shape after base generation: {getattr(latents, 'shape', 'unknown')}")
+            try:
+                base_result = pipe(
+                    conditions=[condition1],
+                    prompt=prompt,
+                    negative_prompt=negative_prompt,
+                    width=downscaled_width,
+                    height=downscaled_height,
+                    num_frames=num_frames,
+                    num_inference_steps=num_inference_steps,
+                    generator=torch.Generator().manual_seed(seed),
+                    output_type="latent",
+                )
+                logger.info(f"[Worker] Base generation result type: {type(base_result)}")
+                logger.info(f"[Worker] Base generation result attributes: {dir(base_result)}")
+                
+                if not hasattr(base_result, 'frames') or base_result.frames is None:
+                    logger.error("[Worker] Base generation failed - no frames attribute")
+                    update_progress(job_id, -1)
+                    return None
+                
+                latents = base_result.frames
+                logger.info(f"[Worker] Latents shape after base generation: {getattr(latents, 'shape', 'unknown')}")
+                
+                if latents is None or (hasattr(latents, 'shape') and 0 in latents.shape):
+                    logger.error(f"[Worker] Base generation failed - invalid latents shape: {getattr(latents, 'shape', 'unknown')}")
+                    update_progress(job_id, -1)
+                    return None
+                    
+            except Exception as e:
+                logger.error(f"[Worker] Base generation failed with error: {str(e)}")
+                update_progress(job_id, -1)
+                return None
 
             # Part 2. Upscale generated video using latent upsampler (with memory limits)
             update_progress(job_id, 60)
