@@ -2,7 +2,7 @@ import os
 import logging
 import torch
 from flask import Flask, request, jsonify, send_file
-from diffusers import LTXConditionPipeline, LTXLatentUpsamplePipeline
+from diffusers import LTXPipeline, LTXUpscalePipeline
 from diffusers.pipelines.ltx.pipeline_ltx_condition import LTXVideoCondition
 from diffusers.utils import export_to_video, load_image, load_video
 from PIL import Image
@@ -13,6 +13,10 @@ from pathlib import Path
 import time
 import threading
 import gc  # For improved memory cleanup
+import yaml
+import shutil
+import imageio_ffmpeg
+import imageio
 
 # Optional: Enable CPU offloading for large models to save VRAM
 USE_CPU_OFFLOAD = False  # Set to True to enable model CPU offloading
@@ -34,24 +38,42 @@ job_lock = threading.Lock()
 pipe = None
 pipe_upsample = None
 
+MODEL_NAME = "Lightricks/LTX-Video-0.9.8-dev"
+UPSCALE_MODEL_NAME = "Lightricks/LTX-Upscale-0.9.8-dev"
+CONFIG_PATH = "configs/ltxv-13b-0.9.8-dev.yaml"
+
+# Clean up cache if old model is loaded
+CACHE_DIR = os.path.expanduser("~/.cache/huggingface")
+if os.path.exists(CACHE_DIR):
+    for root, dirs, files in os.walk(CACHE_DIR):
+        for d in dirs:
+            if "0.9.7" in d:
+                logger.info(f"Removing old model cache: {os.path.join(root, d)}")
+                shutil.rmtree(os.path.join(root, d), ignore_errors=True)
+
+# Load YAML config
+with open(CONFIG_PATH, "r") as f:
+    ltx_config = yaml.safe_load(f)
+default_sample_config = ltx_config["sample"]
+
 def load_models():
     """Load LTX Video models using official diffusers approach with caching"""
     global pipe, pipe_upsample
     
     try:
-        logger.info("Loading LTX Video models from HuggingFace with caching...")
+        logger.info("Loading LTX Video 0.9.8-dev models from HuggingFace with caching...")
         
         # Load base pipeline - this will download and cache the model automatically
-        pipe = LTXConditionPipeline.from_pretrained(
-            "Lightricks/LTX-Video-0.9.7-dev", 
-            torch_dtype=torch.bfloat16
+        pipe = LTXPipeline.from_pretrained(
+            MODEL_NAME,
+            torch_dtype=torch.float16
         )
         
         # Load upscaler pipeline - this will download and cache the model automatically
-        pipe_upsample = LTXLatentUpsamplePipeline.from_pretrained(
-            "Lightricks/ltxv-spatial-upscaler-0.9.7", 
-            vae=pipe.vae, 
-            torch_dtype=torch.bfloat16
+        pipe_upsample = LTXUpscalePipeline.from_pretrained(
+            UPSCALE_MODEL_NAME,
+            vae=pipe.vae,
+            torch_dtype=torch.float16
         )
         
         # Move to GPU if available
@@ -88,6 +110,27 @@ def round_to_nearest_resolution_acceptable_by_vae(height, width):
     height = round_to_multiple(height, base)
     width = round_to_multiple(width, base)
     return height, width
+
+def export_video_high_quality(frames, output_path, fps=30):
+    """Export frames to mp4 using high quality ffmpeg settings."""
+    writer = imageio.get_writer(
+        output_path,
+        fps=fps,
+        codec='libx264',
+        bitrate='10M',
+        ffmpeg_log_level='error',
+        macro_block_size=None,
+        ffmpeg_params=[
+            '-crf', '17',
+            '-preset', 'slow',
+            '-pix_fmt', 'yuv420p'
+        ]
+    )
+    for frame in frames:
+        # Convert PIL Image to numpy array for imageio
+        arr = imageio.core.util.Array(frame)
+        writer.append_data(arr)
+    writer.close()
 
 def process_video_job(job_id, params, file_bytes, file_name):
     """Process video generation job in background thread"""
@@ -301,14 +344,27 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
             logger.info(f"[Worker] Video frames after upsampling and denoising: {len(video_frames)} frames, size: {video_frames[0].size if video_frames else 'unknown'}")
 
             # Part 3. Downscale to expected resolution
-            logger.info(f"[Worker] Resizing to final resolution {final_expected_width}x{final_expected_height}")
-            video_frames = [frame.resize((final_expected_width, final_expected_height)) for frame in video_frames]
+            force_final_resize = params.get('force_final_resize', 'false').lower() == 'true'
+            if force_final_resize:
+                logger.info(f"[Worker] Resizing to final resolution {final_expected_width}x{final_expected_height} (forced)")
+                video_frames = [frame.resize((final_expected_width, final_expected_height)) for frame in video_frames]
+            else:
+                logger.info(f"[Worker] Skipping final downscale; using upscaled resolution for export.")
+
+            # Memory cleanup after upsampling
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            gc.collect()
 
             # Export video
             output_filename = f"output_{uuid.uuid4().hex[:8]}.mp4"
             output_path = os.path.join(tempfile.gettempdir(), output_filename)
-            export_to_video(video_frames, output_path, fps=30)  # Increased from 24 for smoother motion
+            export_video_high_quality(video_frames, output_path, fps=30)  # Increased from 24 for smoother motion
             logger.info(f"[Worker] ✅ Video generated successfully: {output_path}")
+            # Memory cleanup after export
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            gc.collect()
             update_progress(job_id, 100)
             return output_path
         finally:
