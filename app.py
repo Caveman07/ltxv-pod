@@ -327,13 +327,6 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
                     guidance_scale=guidance_scale,
                     decode_timestep=decode_timestep,
                     decode_noise_scale=decode_noise_scale,
-                    stg_mode=stg_mode,
-                    sampler=sampler,
-                    precision=precision,
-                    prompt_enhancement_words_threshold=prompt_enhancement_words_threshold,
-                    prompt_enhancer_image_caption_model_name_or_path=prompt_enhancer_image_caption_model_name_or_path,
-                    prompt_enhancer_llm_model_name_or_path=prompt_enhancer_llm_model_name_or_path,
-                    stochastic_sampling=stochastic_sampling,
                     generator=torch.Generator().manual_seed(seed),
                     output_type="latent"
                 )
