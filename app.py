@@ -17,6 +17,7 @@ import yaml
 import shutil
 import imageio_ffmpeg
 import imageio
+import inspect
 
 # Optional: Enable CPU offloading for large models to save VRAM
 USE_CPU_OFFLOAD = False  # Set to True to enable model CPU offloading
@@ -312,8 +313,10 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
             logger.info(f"[Worker] Generating video at {downscaled_width}x{downscaled_height}")
             try:
                 guidance_scale = float(params.get('guidance_scale', defaults.get('guidance_scale', 1)))
+                # Debug: print the signature of the pipeline call
+                print(inspect.signature(pipe.__call__))
                 base_result = pipe(
-                    conditions=[condition1],
+                    video=video,
                     prompt=prompt,
                     negative_prompt=negative_prompt,
                     width=downscaled_width,
@@ -331,7 +334,7 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
                     prompt_enhancer_llm_model_name_or_path=prompt_enhancer_llm_model_name_or_path,
                     stochastic_sampling=stochastic_sampling,
                     generator=torch.Generator().manual_seed(seed),
-                    output_type="latent",
+                    output_type="latent"
                 )
                 logger.info(f"[Worker] Base generation result type: {type(base_result)}")
                 logger.info(f"[Worker] Base generation result attributes: {dir(base_result)}")
