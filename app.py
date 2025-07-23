@@ -2,8 +2,8 @@ import os
 import logging
 import torch
 from flask import Flask, request, jsonify, send_file
-from diffusers.pipelines.ltx import LTXPipeline
-from diffusers import LTXLatentUpsamplePipeline
+import torch
+from diffusers import LTXConditionPipeline, LTXLatentUpsamplePipeline
 from diffusers.pipelines.ltx.pipeline_ltx_condition import LTXVideoCondition
 from diffusers.utils import export_to_video, load_image, load_video
 from PIL import Image
@@ -88,7 +88,7 @@ def load_models():
         logger.info("Loading LTX Video 0.9.8-dev models from HuggingFace with caching...")
         
         # Load base pipeline - this will download and cache the model automatically
-        pipe = LTXPipeline.from_pretrained(
+        pipe = LTXConditionPipeline.from_pretrained(
             MODEL_NAME,
             torch_dtype=torch.float16
         )
