@@ -54,7 +54,13 @@ if os.path.exists(CACHE_DIR):
 # Load YAML config
 with open(CONFIG_PATH, "r") as f:
     ltx_config = yaml.safe_load(f)
-default_sample_config = ltx_config["sample"]
+defaults = {
+    "num_inference_steps": ltx_config["first_pass"]["num_inference_steps"],
+    "decode_timestep": ltx_config.get("decode_timestep", 0.05),
+    "decode_noise_scale": ltx_config.get("decode_noise_scale", 0.025),
+    "guidance_scale": ltx_config["first_pass"]["guidance_scale"],
+    # Add more as needed
+}
 
 def load_models():
     """Load LTX Video models using official diffusers approach with caching"""
