@@ -18,6 +18,7 @@ import yaml
 import shutil
 import imageio_ffmpeg
 import imageio
+import numpy as np
 import inspect
 
 # Optional: Enable CPU offloading for large models to save VRAM
@@ -152,7 +153,7 @@ def export_video_high_quality(frames, output_path, fps=30):
     )
     for frame in frames:
         # Convert PIL Image to numpy array for imageio
-        arr = imageio.core.util.Array(frame)
+        arr = np.array(frame)
         writer.append_data(arr)
     writer.close()
 
