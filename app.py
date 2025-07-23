@@ -292,10 +292,7 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
             # Directly get denoised frames from upsampler
             video_frames = pipe_upsample(
                 latents=latents,
-                output_type="pil",
-                num_frames=num_frames, # Pass num_frames to upsampler
-                denoise_strength=denoise_strength, # Pass denoise_strength to upsampler
-                decode_timestep=decode_timestep # Pass decode_timestep to upsampler
+                output_type="pil"
             ).frames
             logger.info(f"[Worker] Video frames after upsampling and denoising: {len(video_frames)} frames, size: {video_frames[0].size if video_frames else 'unknown'}")
 
