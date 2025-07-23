@@ -55,9 +55,23 @@ if os.path.exists(CACHE_DIR):
 with open(CONFIG_PATH, "r") as f:
     ltx_config = yaml.safe_load(f)
 defaults = {
-    "num_inference_steps": ltx_config.get("num_inference_steps", 30),
+    "pipeline_type": ltx_config.get("pipeline_type"),
+    "checkpoint_path": ltx_config.get("checkpoint_path"),
+    "downscale_factor": ltx_config.get("downscale_factor", 0.6666666),
+    "spatial_upscaler_model_path": ltx_config.get("spatial_upscaler_model_path"),
+    "stg_mode": ltx_config.get("stg_mode"),
     "decode_timestep": ltx_config.get("decode_timestep", 0.05),
     "decode_noise_scale": ltx_config.get("decode_noise_scale", 0.025),
+    "text_encoder_model_name_or_path": ltx_config.get("text_encoder_model_name_or_path"),
+    "precision": ltx_config.get("precision"),
+    "sampler": ltx_config.get("sampler"),
+    "prompt_enhancement_words_threshold": ltx_config.get("prompt_enhancement_words_threshold"),
+    "prompt_enhancer_image_caption_model_name_or_path": ltx_config.get("prompt_enhancer_image_caption_model_name_or_path"),
+    "prompt_enhancer_llm_model_name_or_path": ltx_config.get("prompt_enhancer_llm_model_name_or_path"),
+    "stochastic_sampling": ltx_config.get("stochastic_sampling"),
+    "first_pass": ltx_config.get("first_pass", {}),
+    "second_pass": ltx_config.get("second_pass", {}),
+    "num_inference_steps": ltx_config.get("num_inference_steps", 30),
     "guidance_scale": ltx_config.get("first_pass", {}).get("guidance_scale", 1),
     "second_pass_guidance_scale": ltx_config.get("second_pass", {}).get("guidance_scale", 1),
     "frame_rate": ltx_config.get("frame_rate", 24),
@@ -200,19 +214,27 @@ def process_video_job(job_id, params, file_bytes, file_name):
 def video_generation_worker(params, file_bytes, file_name, job_id, update_progress):
     try:
         update_progress(job_id, 5)
-        # Unpack params
+        # Unpack params with config fallback
         prompt = params.get('prompt', '')
         negative_prompt = params.get('negative_prompt', 'worst quality, inconsistent motion, blurry, jittery, distorted')
-        num_frames = int(params.get('num_frames', 96))
-        denoise_strength = float(params.get('denoise_strength', 0.4))  # Exposed for future use
-        decode_timestep = float(params.get('decode_timestep', 0.05))   # Exposed for future use
+        num_frames = int(params.get('num_frames', defaults.get('num_frames', 96)))
+        denoise_strength = float(params.get('denoise_strength', 0.4))  # Not in config, keep as is
+        decode_timestep = float(params.get('decode_timestep', defaults.get('decode_timestep', 0.05)))
+        decode_noise_scale = float(params.get('decode_noise_scale', defaults.get('decode_noise_scale', 0.025)))
+        expected_height = int(params.get('height', 720))  # Not in config, keep as is
+        expected_width = int(params.get('width', 1280))   # Not in config, keep as is
+        downscale_factor = float(params.get('downscale_factor', defaults.get('downscale_factor', 0.6666666)))
+        seed = int(params.get('seed', 0))
+        stg_mode = params.get('stg_mode', defaults.get('stg_mode'))
+        sampler = params.get('sampler', defaults.get('sampler'))
+        precision = params.get('precision', defaults.get('precision'))
+        prompt_enhancement_words_threshold = int(params.get('prompt_enhancement_words_threshold', defaults.get('prompt_enhancement_words_threshold', 120)))
+        prompt_enhancer_image_caption_model_name_or_path = params.get('prompt_enhancer_image_caption_model_name_or_path', defaults.get('prompt_enhancer_image_caption_model_name_or_path'))
+        prompt_enhancer_llm_model_name_or_path = params.get('prompt_enhancer_llm_model_name_or_path', defaults.get('prompt_enhancer_llm_model_name_or_path'))
+        stochastic_sampling = params.get('stochastic_sampling', defaults.get('stochastic_sampling'))
         # Only num_frames is used directly; denoise_strength and decode_timestep are logged for advanced users
         logger.info(f"[Worker] Using num_frames={num_frames}, denoise_strength={denoise_strength}, decode_timestep={decode_timestep}")
-        expected_height = int(params.get('height', 720))  # Increased from 480
-        expected_width = int(params.get('width', 1280))   # Increased from 832
-        downscale_factor = float(params.get('downscale_factor', 0.8))  # Increased from 2/3 (0.67)
-        seed = int(params.get('seed', 0))
-
+        
         # Calculate dimensions
         downscaled_height = round_to_multiple(expected_height * downscale_factor)
         downscaled_width = round_to_multiple(expected_width * downscale_factor)
@@ -289,6 +311,7 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
             update_progress(job_id, 30)
             logger.info(f"[Worker] Generating video at {downscaled_width}x{downscaled_height}")
             try:
+                guidance_scale = float(params.get('guidance_scale', defaults.get('guidance_scale', 1)))
                 base_result = pipe(
                     conditions=[condition1],
                     prompt=prompt,
@@ -298,6 +321,15 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
                     num_frames=num_frames,
                     num_inference_steps=num_frames,
                     guidance_scale=guidance_scale,
+                    decode_timestep=decode_timestep,
+                    decode_noise_scale=decode_noise_scale,
+                    stg_mode=stg_mode,
+                    sampler=sampler,
+                    precision=precision,
+                    prompt_enhancement_words_threshold=prompt_enhancement_words_threshold,
+                    prompt_enhancer_image_caption_model_name_or_path=prompt_enhancer_image_caption_model_name_or_path,
+                    prompt_enhancer_llm_model_name_or_path=prompt_enhancer_llm_model_name_or_path,
+                    stochastic_sampling=stochastic_sampling,
                     generator=torch.Generator().manual_seed(seed),
                     output_type="latent",
                 )
