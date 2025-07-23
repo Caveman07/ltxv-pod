@@ -55,11 +55,13 @@ if os.path.exists(CACHE_DIR):
 with open(CONFIG_PATH, "r") as f:
     ltx_config = yaml.safe_load(f)
 defaults = {
-    "num_inference_steps": 30,  # Not present in YAML, set a sensible default
+    "num_inference_steps": ltx_config.get("num_inference_steps", 30),
     "decode_timestep": ltx_config.get("decode_timestep", 0.05),
     "decode_noise_scale": ltx_config.get("decode_noise_scale", 0.025),
     "guidance_scale": ltx_config.get("first_pass", {}).get("guidance_scale", 1),
-    # Add more as needed
+    "second_pass_guidance_scale": ltx_config.get("second_pass", {}).get("guidance_scale", 1),
+    "frame_rate": ltx_config.get("frame_rate", 24),
+    "num_frames": ltx_config.get("num_frames", 96),
 }
 
 def load_models():
@@ -294,7 +296,8 @@ def video_generation_worker(params, file_bytes, file_name, job_id, update_progre
                     width=downscaled_width,
                     height=downscaled_height,
                     num_frames=num_frames,
-                    num_inference_steps=num_frames, # Use num_frames for inference steps
+                    num_inference_steps=num_frames,
+                    guidance_scale=guidance_scale,
                     generator=torch.Generator().manual_seed(seed),
                     output_type="latent",
                 )
