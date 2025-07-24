@@ -104,7 +104,9 @@ class TestAPIEndpoints:
                 'num_inference_steps': str(params.get('num_inference_steps', test_video_params['num_inference_steps'])),
                 'height': str(params.get('height', test_video_params['height'])),
                 'width': str(params.get('width', test_video_params['width'])),
-                'seed': str(params.get('seed', test_video_params['seed']))
+                'seed': str(params.get('seed', test_video_params['seed'])),
+                'guidance_scale': str(params.get('guidance_scale', test_video_params['guidance_scale'])),
+                'downscale_factor': str(params.get('downscale_factor', test_video_params['downscale_factor']))
             }
             print("📤 Sending generation request...")
             response = self.session.post(f"{self.base_url}/generate", files=files, data=data, timeout=self.timeout)

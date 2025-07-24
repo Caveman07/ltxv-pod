@@ -60,7 +60,7 @@ with open(CONFIG_PATH, "r") as f:
 defaults = {
     "pipeline_type": ltx_config.get("pipeline_type"),
     "checkpoint_path": ltx_config.get("checkpoint_path"),
-    "downscale_factor": ltx_config.get("downscale_factor", 0.6666666),
+    "downscale_factor": ltx_config.get("downscale_factor", 0.8),
     "spatial_upscaler_model_path": ltx_config.get("spatial_upscaler_model_path"),
     "stg_mode": ltx_config.get("stg_mode"),
     "decode_timestep": ltx_config.get("decode_timestep", 0.05),
@@ -75,8 +75,8 @@ defaults = {
     "first_pass": ltx_config.get("first_pass", {}),
     "second_pass": ltx_config.get("second_pass", {}),
     "num_inference_steps": ltx_config.get("num_inference_steps", 30),
-    "guidance_scale": ltx_config.get("first_pass", {}).get("guidance_scale", 1),
-    "second_pass_guidance_scale": ltx_config.get("second_pass", {}).get("guidance_scale", 1),
+    "guidance_scale": ltx_config.get("first_pass", {}).get("guidance_scale", 4),
+    "second_pass_guidance_scale": ltx_config.get("second_pass", {}).get("guidance_scale", 4),
     "frame_rate": ltx_config.get("frame_rate", 24),
     "num_frames": ltx_config.get("num_frames", 96),
 }
