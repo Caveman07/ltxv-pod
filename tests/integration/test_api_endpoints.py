@@ -119,9 +119,10 @@ class TestAPIEndpoints:
         result_resp = self.session.get(f"{self.base_url}/result/{job_id}", timeout=self.timeout)
         assert result_resp.status_code == 200, f"Expected 200, got {result_resp.status_code}"
         assert result_resp.headers.get('content-type') == 'video/mp4', "Expected video/mp4 content type"
-        with open("test_output.mp4", 'wb') as f:
+        output_path = os.path.join(os.path.dirname(__file__), "..", "test_output.mp4")
+        with open(output_path, 'wb') as f:
             f.write(result_resp.content)
-        print(f"✅ Video generated and downloaded: test_output.mp4")
+        print(f"✅ Video generated and downloaded: {output_path}")
     
     def test_generate_endpoint_invalid_file(self, test_video_params):
         """Test video generation with invalid file (empty file upload)"""
@@ -185,7 +186,7 @@ class TestAPIEndpoints:
     #     result_resp = self.session.get(f"{self.base_url}/result/{job_id}", timeout=self.timeout)
     #     assert result_resp.status_code == 200, f"Expected 200, got {result_resp.status_code}"
     #     assert result_resp.headers.get('content-type') == 'video/mp4', "Expected video/mp4 content type"
-    #     with open("test_output_large.mp4", 'wb') as f:
+    #     with open(os.path.join(os.path.dirname(__file__), "..", "test_output_large.mp4"), 'wb') as f:
     #         f.write(result_resp.content)
     #     print(f"✅ Large video generated and downloaded: test_output_large.mp4")
     # Temporarily disabled for stability/testing

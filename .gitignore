@@ -37,3 +37,11 @@ tests/test_params.json
 
 # Test assets (do not commit test images or files)
 tests/assets/
+tests/*.mp4 
+tests/*.png
+tests/*.jpg
+tests/*.jpeg
+tests/*.bmp
+tests/*.tiff
+tests/*.webp 
+tests/test_output*.mp4 
